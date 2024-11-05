@@ -21,10 +21,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Merge Sort Learning",
         native_options,
-        Box::new(|cc| {
-            cc.egui_ctx.set_visuals(egui::Visuals::light());
-            Ok(Box::new(mergesort_egui::LearningApp::new(cc)))
-        }),
+        Box::new(|cc| Ok(Box::new(mergesort_egui::LearningApp::new(cc)))),
     )
 }
 

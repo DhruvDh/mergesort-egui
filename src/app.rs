@@ -1,222 +1,173 @@
-use chrono::{DateTime, Local};
-use egui::{Color32, RichText, ScrollArea, Vec2};
-use serde::{Deserialize, Serialize};
-
-#[derive(Deserialize, Serialize, Clone)]
-struct Message {
-    content: String,
-    is_user: bool,
-    timestamp: DateTime<Local>,
-}
-
-#[derive(Deserialize, Serialize)]
-struct Checkpoint {
-    name: String,
-    description: String,
-    start_time: Option<DateTime<Local>>,
-}
-
+/// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct LearningApp {
-    messages: Vec<Message>,
-    current_input: String,
-    checkpoints: Vec<Checkpoint>,
-    current_checkpoint: usize,
+    label: String,
+    current_question: usize,
+    total_questions: usize,
+    assignment_title: String,
+    assignment_started: bool,
+    current_question_answered: bool,
+
     #[serde(skip)]
-    scroll_to_bottom: bool,
+    value: f32,
 }
 
 impl Default for LearningApp {
     fn default() -> Self {
-        let checkpoints = vec![
-            Checkpoint {
-                name: "Understanding Current Limitations".to_string(),
-                description: "Explore why simple sorting is inefficient".to_string(),
-                start_time: Some(Local::now()),
-            },
-            Checkpoint {
-                name: "Binary Search Connection".to_string(),
-                description: "Connect to previous divide-and-conquer success".to_string(),
-                start_time: None,
-            },
-            Checkpoint {
-                name: "Split Attempt".to_string(),
-                description: "First try at splitting the problem".to_string(),
-                start_time: None,
-            },
-            Checkpoint {
-                name: "Merge Discovery".to_string(),
-                description: "Discover how to combine sorted sequences".to_string(),
-                start_time: None,
-            },
-            Checkpoint {
-                name: "Recursion Insight".to_string(),
-                description: "Complete algorithm realization".to_string(),
-                start_time: None,
-            },
-            Checkpoint {
-                name: "Complexity Analysis".to_string(),
-                description: "Understanding efficiency gains".to_string(),
-                start_time: None,
-            },
-        ];
-
-        let initial_message = Message {
-            content: "Let's explore sorting algorithms together! How would you approach sorting a list of numbers?".to_string(),
-            is_user: false,
-            timestamp: Local::now(),
-        };
-
         Self {
-            messages: vec![initial_message],
-            current_input: String::new(),
-            checkpoints,
-            current_checkpoint: 0,
-            scroll_to_bottom: false,
+            label: "Hello World!".to_owned(),
+            value: 2.7,
+            current_question: 0,
+            total_questions: 0,
+            assignment_title: "".to_owned(),
+            assignment_started: false,
+            current_question_answered: false,
         }
     }
 }
 
 impl LearningApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_visuals.
         if let Some(storage) = cc.storage {
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
+
         Default::default()
     }
 
-    fn send_message(&mut self) {
-        if !self.current_input.trim().is_empty() {
-            let user_message = Message {
-                content: self.current_input.clone(),
-                is_user: true,
-                timestamp: Local::now(),
-            };
-            self.messages.push(user_message);
-            self.current_input.clear();
-            self.scroll_to_bottom = true;
+    fn render_top_panel(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            // Center section - Controls
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                // Start Assignment button
+                if ui
+                    .button(if !self.assignment_started {
+                        "▶ Start"
+                    } else {
+                        "Started"
+                    })
+                    .clicked()
+                {
+                    self.assignment_started = true;
+                }
 
-            // Simulate assistant response (in a real app, this would come from the LLM)
-            let assistant_message = Message {
-                content: "I see your approach. Let's think about that...".to_string(),
-                is_user: false,
-                timestamp: Local::now(),
-            };
-            self.messages.push(assistant_message);
-        }
+                // Reset Session button
+                if ui.button("↺ Reset Session").clicked() {
+                    self.assignment_started = false;
+                    self.current_question = 1;
+                    self.current_question_answered = false;
+                }
+
+                ui.separator();
+
+                // Question navigation
+                ui.horizontal(|ui| {
+                    if ui.button("⏴").clicked() && self.current_question > 1 {
+                        self.current_question -= 1;
+                    }
+                    ui.label(format!(
+                        "Question {} of {}",
+                        self.current_question, self.total_questions
+                    ));
+                    if ui.button("⏵").clicked() && self.current_question < self.total_questions {
+                        self.current_question += 1;
+                    }
+                });
+
+                ui.separator();
+
+                // Mark as Answered button
+                let answer_button = egui::Button::new(if self.current_question_answered {
+                    "☑ Answered?"
+                } else {
+                    "☐ Answered?"
+                });
+                if ui.add(answer_button).clicked() {
+                    self.current_question_answered = !self.current_question_answered;
+                }
+
+                // Submit Assignment button
+                if ui.button("🏆 Submit").clicked() {
+                    // Handle submission
+                }
+
+                ui.separator();
+                egui::widgets::global_theme_preference_buttons(ui);
+                ui.separator();
+                egui::gui_zoom::zoom_menu_buttons(ui);
+            });
+        });
     }
 }
 
 impl eframe::App for LearningApp {
+    /// Called by the frame work to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
     }
 
+    /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Left panel for checkpoints
-        egui::SidePanel::left("checkpoints_panel")
-            .resizable(true)
-            .default_width(200.0)
+        egui::Area::new("splash".into())
+            .order(egui::Order::Background)
+            .default_width(f32::INFINITY)
+            .fixed_pos(egui::Pos2 { x: 32.0, y: 0.0 })
             .show(ctx, |ui| {
-                ui.heading("Learning Progress");
-                ui.add_space(8.0);
+                egui::ScrollArea::horizontal()
+                    .max_width(f32::INFINITY)
+                    .show(ui, |ui| {
+                        ui.set_opacity(0.42);
+                        ui.horizontal_centered(|ui| {
+                            ui.label(egui::RichText::new("ITSC 2214 -").size(42.0).heading());
+                            ui.label(egui::RichText::new("MergeSort").size(60.0).heading());
+                            ui.add_space(32.0);
+                            ui.set_opacity(1.0);
 
-                ScrollArea::vertical().show(ui, |ui| {
-                    for (index, checkpoint) in self.checkpoints.iter().enumerate() {
-                        let is_current = index == self.current_checkpoint;
-                        let text = RichText::new(&checkpoint.name).color(if is_current {
-                            Color32::BLUE
-                        } else {
-                            ui.style().visuals.text_color()
+                            self.render_top_panel(ui);
                         });
-
-                        ui.add_space(4.0);
-                        if ui
-                            .add(egui::Label::new(text).sense(egui::Sense::click()))
-                            .clicked()
-                        {
-                            // Handle checkpoint click
-                        }
-
-                        if is_current {
-                            ui.label(RichText::new(&checkpoint.description).small());
-                            if let Some(start_time) = checkpoint.start_time {
-                                let duration = Local::now() - start_time;
-                                ui.label(
-                                    RichText::new(format!(
-                                        "Time: {}:{:02}",
-                                        duration.num_minutes(),
-                                        duration.num_seconds() % 60
-                                    ))
-                                    .small(),
-                                );
-                            }
-                        }
-                        ui.add_space(4.0);
-                        ui.separator();
-                    }
-                });
+                    });
             });
 
-        // Main chat panel
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Messages area
-            let chat_height = ui.available_height() - 50.0; // Reserve space for input
-            ScrollArea::vertical()
-                .auto_shrink([false; 2])
-                .stick_to_bottom(self.scroll_to_bottom)
-                .show(ui, |ui| {
-                    self.scroll_to_bottom = false;
-                    for message in &self.messages {
-                        ui.add_space(8.0);
-                        let bubble_color = if message.is_user {
-                            Color32::from_rgb(56, 139, 255)
-                        } else {
-                            ui.style().visuals.window_fill()
-                        };
+            // The central panel the region left after adding TopPanel's and SidePanel's
+            ui.heading("eframe template");
 
-                        let text_color = if message.is_user {
-                            Color32::WHITE
-                        } else {
-                            ui.style().visuals.text_color()
-                        };
-
-                        let layout = if message.is_user {
-                            egui::Layout::right_to_left(egui::Align::Min)
-                        } else {
-                            egui::Layout::left_to_right(egui::Align::Min)
-                        };
-
-                        ui.with_layout(layout, |ui| {
-                            ui.add(
-                                egui::Label::new(RichText::new(&message.content).color(text_color))
-                                    .wrap(),
-                            );
-                        });
-
-                        ui.add_space(4.0);
-                    }
-                });
-
-            // Input area
-            ui.add_space(8.0);
             ui.horizontal(|ui| {
-                let text_edit = ui.add_sized(
-                    ui.available_size() - Vec2::new(60.0, 0.0),
-                    egui::TextEdit::singleline(&mut self.current_input)
-                        .hint_text("Type your message..."),
-                );
+                ui.label("Write something: ");
+                ui.text_edit_singleline(&mut self.label);
+            });
 
-                if ui
-                    .add_sized([50.0, 20.0], egui::Button::new("Send"))
-                    .clicked()
-                    || (text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
-                {
-                    self.send_message();
-                }
+            ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
+            if ui.button("Increment").clicked() {
+                self.value += 1.0;
+            }
+
+            ui.separator();
+
+            ui.add(egui::github_link_file!(
+                "https://github.com/emilk/eframe_template/blob/main/",
+                "Source code."
+            ));
+
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                powered_by_egui_and_eframe(ui);
+                egui::warn_if_debug_build(ui);
             });
         });
     }
+}
+
+fn powered_by_egui_and_eframe(ui: &mut egui::Ui) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.label("Powered by ");
+        ui.hyperlink_to("egui", "https://github.com/emilk/egui");
+        ui.label(" and ");
+        ui.hyperlink_to(
+            "eframe",
+            "https://github.com/emilk/egui/tree/master/crates/eframe",
+        );
+        ui.label(".");
+    });
 }
