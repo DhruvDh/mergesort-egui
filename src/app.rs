@@ -1,4 +1,7 @@
+#![warn(clippy::all)]
+
 use eframe::egui;
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -15,12 +18,22 @@ struct Checkpoint {
     status: CheckpointStatus,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub content: String,
+    pub from_user: bool, // true if it's a user's message
+}
+
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct LearningApp {
     label: String,
     checkpoints: Vec<Checkpoint>,
     reset_modal_open: bool, // State variable for managing reset confirmation modal
+    chat_history: Vec<ChatMessage>,
+    #[serde(skip)] // Caches don't need to be serialized
+    message_caches: Vec<CommonMarkCache>,
+    current_input: String,
 }
 
 impl Default for LearningApp {
@@ -55,6 +68,9 @@ impl Default for LearningApp {
                 },
             ],
             reset_modal_open: false,
+            chat_history: Vec::new(),
+            message_caches: Vec::new(),
+            current_input: String::new(),
         }
     }
 }
@@ -62,7 +78,13 @@ impl Default for LearningApp {
 impl LearningApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         if let Some(storage) = cc.storage {
-            return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+            let mut app: Self = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
+            // Initialize caches for any existing messages
+            app.message_caches = Vec::with_capacity(app.chat_history.len());
+            for _ in 0..app.chat_history.len() {
+                app.message_caches.push(CommonMarkCache::default());
+            }
+            return app;
         }
         Default::default()
     }
@@ -73,16 +95,12 @@ impl LearningApp {
 
     fn render_side_panel(&mut self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
-            ui.add_space(8.0);
             ui.label(
                 egui::RichText::new("Learning Progress")
                     .size(18.0)
                     .heading(),
             );
             ui.add_space(8.0);
-            ui.separator();
-            ui.add_space(8.0);
-
             // Render checkpoints
             self.checkpoints
                 .iter()
@@ -97,7 +115,7 @@ impl LearningApp {
                                     format!("{}. {} ✔", index + 1, checkpoint.description)
                                 }
                                 CheckpointStatus::InProgress => {
-                                    format!("{}.   ? ? ? (In Progress... ⏳)", index + 1)
+                                    format!("{}.   ? ? ?  (In Progress... ⏳)", index + 1)
                                 }
                                 CheckpointStatus::NotStarted => {
                                     format!("{}.   ? ? ?", index + 1)
@@ -107,22 +125,116 @@ impl LearningApp {
                             ui.label(egui::RichText::new(display_text).size(15.0));
                         });
                     });
-                    ui.add_space(4.0);
+                    ui.add_space(8.0);
                 });
 
             ui.add_space(8.0);
             ui.separator();
+            ui.add_space(8.0);
 
-            if ui.button("🔄 Reset Assignment").clicked() {
+            let available_width = ui.available_width();
+            if ui
+                .add_sized(
+                    egui::vec2(available_width, 30.0),
+                    egui::Button::new("🔄 Reset Assignment"),
+                )
+                .clicked()
+            {
                 self.reset_modal_open = true;
             }
 
             ui.add_space(8.0);
             ui.separator();
+            ui.add_space(8.0);
 
-            egui::widgets::global_theme_preference_buttons(ui);
-            ui.separator();
-            egui::gui_zoom::zoom_menu_buttons(ui);
+            ui.with_layout(
+                egui::Layout::top_down_justified(egui::Align::Center),
+                |ui| {
+                    egui::widgets::global_theme_preference_buttons(ui);
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+                    egui::gui_zoom::zoom_menu_buttons(ui);
+                },
+            );
+        });
+    }
+
+    fn render_chat_panel(&mut self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            // Calculate user message background color once
+            let user_msg_bg = if ui.visuals().dark_mode {
+                egui::Color32::from_rgb(75, 85, 99) // Dark gray for dark mode
+            } else {
+                egui::Color32::from_rgb(254, 243, 199) // Yellow for light mode
+            };
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for (idx, message) in self.chat_history.iter().enumerate() {
+                    if message.from_user {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                            egui::Frame::none()
+                                .fill(user_msg_bg)
+                                .rounding(egui::Rounding::same(10.0))
+                                .inner_margin(egui::Margin::symmetric(10.0, 10.0))
+                                .show(ui, |ui| {
+                                    CommonMarkViewer::new().show(
+                                        ui,
+                                        &mut self.message_caches[idx],
+                                        &message.content,
+                                    );
+                                });
+                        });
+                    } else {
+                        egui::Frame::none()
+                            .fill(ui.visuals().extreme_bg_color)
+                            .rounding(egui::Rounding::same(10.0))
+                            .inner_margin(egui::Margin::symmetric(10.0, 10.0))
+                            .show(ui, |ui| {
+                                CommonMarkViewer::new().show(
+                                    ui,
+                                    &mut self.message_caches[idx],
+                                    &message.content,
+                                );
+                            });
+                    }
+                    ui.add_space(10.0);
+                }
+            });
+
+            // Input area
+            ui.horizontal(|ui| {
+                let available_width = ui.available_width();
+                ui.add(
+                    egui::TextEdit::multiline(&mut self.current_input)
+                        .hint_text("Type your message here...")
+                        .desired_rows(5)
+                        .desired_width(available_width * 0.87)
+                        .frame(true),
+                );
+                let button = egui::Button::new("Send").min_size(egui::vec2(
+                    available_width * 0.12,
+                    ui.spacing().interact_size.y * 4.0,
+                ));
+
+                if ui.add(button).clicked() && !self.current_input.is_empty() {
+                    // Add user's message and its cache
+                    self.chat_history.push(ChatMessage {
+                        content: self.current_input.clone(),
+                        from_user: true,
+                    });
+                    self.message_caches.push(CommonMarkCache::default());
+                    self.current_input.clear();
+
+                    // Simulate a response and add its cache
+                    self.chat_history.push(ChatMessage {
+                        content: "This is a simulated response from the assistant.\n# hi\n[ ] test"
+                            .to_string(),
+                        from_user: false,
+                    });
+                    self.message_caches.push(CommonMarkCache::default());
+                }
+            });
         });
     }
 
@@ -163,7 +275,6 @@ impl eframe::App for LearningApp {
                         .heading(),
                 );
             });
-            ui.add_space(8.0);
         });
 
         egui::SidePanel::left("side_panel").show(ctx, |ui| {
@@ -171,14 +282,7 @@ impl eframe::App for LearningApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(&mut self.label);
-            });
-
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                egui::warn_if_debug_build(ui);
-            });
+            self.render_chat_panel(ui);
         });
 
         self.render_reset_modal(ctx);

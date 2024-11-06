@@ -3,7 +3,6 @@ name = "mergesort-egui"
 version = "0.1.0"
 authors = ["Dhruv Dhamani <dhruv.dhamani@gmail.com>"]
 edition = "2021"
-include = ["LICENSE-APACHE", "LICENSE-MIT", "**/*.rs", "Cargo.toml"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -31,7 +30,11 @@ egui_commonmark = { version = "0.18.0", features = [
     "fetch",
     "svg",
 ] }
-image = { version = "0.25", features = ["jpeg", "png", "webp"] }
+image = { version = "0.25", default-features = false, features = [
+    "jpeg",
+    "png",
+    "webp",
+] }
 
 
 # native:
