@@ -1,5 +1,5 @@
 ---
-title: "The Journey to Merge Sort: Part 1"
+title: "The Journey to Merge Sort"
 ---
 
 ## Starting with Regular Sort
@@ -7,7 +7,7 @@ title: "The Journey to Merge Sort: Part 1"
 Let's begin with the most intuitive way to sort numbers. Imagine you have a sequence of numbers:
 
 ```
-7  2  4  1  5  3
+[7, 2, 4, 1, 5, 3]
 ```
 
 How would you sort this by hand? Most people would:
@@ -20,7 +20,7 @@ Let's implement this natural approach:
 
 ```java
 public class Sorting {
-    public static void regularSort(int[] arr) {
+    public static void insertionSort(int[] arr) {
         // For each number (except the first one)
         for (int i = 1; i < arr.length; i++) {
             int current = arr[i];  // The number we're placing
@@ -41,7 +41,7 @@ public class Sorting {
         int[] numbers = {7, 2, 4, 1, 5, 3};
         
         System.out.println("Before sorting: " + Arrays.toString(numbers));
-        regularSort(numbers);
+        insertionSort(numbers);
         System.out.println("After sorting:  " + Arrays.toString(numbers));
     }
 }
@@ -50,12 +50,12 @@ public class Sorting {
 Let's trace what happens with our example:
 
 ```
-Initial:    [7, 2, 4, 1, 5, 3]
-Place 2:    [2, 7, 4, 1, 5, 3]    // 2 moves before 7
-Place 4:    [2, 4, 7, 1, 5, 3]    // 4 moves before 7
-Place 1:    [1, 2, 4, 7, 5, 3]    // 1 moves to start
-Place 5:    [1, 2, 4, 5, 7, 3]    // 5 moves before 7
-Place 3:    [1, 2, 3, 4, 5, 7]    // 3 moves after 2
+Step 0:    [7, 2, 4, 1, 5, 3]    Initial array
+Step 1:    [2, 7, 4, 1, 5, 3]    Place 2 before 7
+Step 2:    [2, 4, 7, 1, 5, 3]    Place 4 before 7
+Step 3:    [1, 2, 4, 7, 5, 3]    Place 1 before 2
+Step 4:    [1, 2, 4, 5, 7, 3]    Place 5 before 7
+Step 5:    [1, 2, 3, 4, 5, 7]    Place 3 after 2
 ```
 
 This works! But let's think about how much work we're doing. For each number:
@@ -93,7 +93,7 @@ But what if, instead of ignoring half the numbers, we sorted them separately? Le
 
 ```
 Original:     [7, 2, 4, 1, 5, 3]
-Split:        [7, 2, 4] [1, 5, 3]
+Split:        [7, 2, 4] | [1, 5, 3]
 ```
 
 If we sort each half using our regular sort, how many operations would that take?
@@ -110,11 +110,6 @@ Hey - that's interesting! It's still O(n²), but we've cut the number of operati
 
 Should we try implementing this idea? Even if it doesn't give us a fundamentally faster algorithm, it might teach us something...
 
----
-
-title: "The Journey to Merge Sort: Part 2"
----
-
 ## Trying the Split Approach
 
 Since splitting the array might save us some work, let's implement this idea:
@@ -130,8 +125,8 @@ public static void splitSort(int[] arr) {
     int[] right = Arrays.copyOfRange(arr, mid, arr.length);
     
     // Sort each half using our regular sort
-    regularSort(left);
-    regularSort(right);
+    insertionSort(left);
+    insertionSort(right);
     
     // Put the pieces back together
     System.arraycopy(left, 0, arr, 0, left.length);
@@ -160,10 +155,14 @@ After splitSort: [2, 4, 7, 1, 3, 5]
 
 Wait a minute... that's not right! The numbers are sorted within each half, but when we put them back together, something's wrong. Let's look at what happened step by step:
 
-1. Split:        [7, 2, 4] | [1, 5, 3]
-2. Sort left:    [2, 4, 7] | [1, 5, 3]
-3. Sort right:   [2, 4, 7] | [1, 3, 5]
-4. Combined:     [2, 4, 7, 1, 3, 5]
+```
+┌─ Split Phase ────────────────────────┐
+|Step 1: Split    [7, 2, 4] | [1, 5, 3]|
+|Step 2: Sort L   [2, 4, 7] | [1, 5, 3]|
+|Step 3: Sort R   [2, 4, 7] | [1, 3, 5]|
+|Step 4: Combine  [2, 4, 7, 1, 3, 5]   |
+└──────────────────────────────────────┘
+```
 
 Ah! Even though each half is sorted, 7 is greater than 1, so just putting the sorted halves next to each other doesn't work.
 
@@ -193,8 +192,6 @@ Hey, that second idea seems promising! Let's work through it completely:
 
 [Space for working it out...]
 
-Would you like to try working through the complete combination before we continue?
-
 ## Discovering the Merge
 
 We found that taking the smallest element at each step might work. Let's explore this idea more carefully.
@@ -221,9 +218,44 @@ Do you see a pattern forming? At each step, we:
 2. Take the smaller one
 3. Move forward in whichever pile we took from
 
-Before we try coding this, what information do we need to keep track of? Take a moment to list out the important pieces...
+Before we try coding this, what information do we need to keep track of? Take a moment to list out the important pieces... We do that for you here:
 
-[Space for thinking...]
+Let's visualize how merging works with a complete example.
+
+Left array:  [2, 4, 7]
+Right array: [1, 3, 5]
+
+We'll use '→' to show which numbers we're looking at, and put our result below:
+
+Step 1:
+[→2, 4, 7]
+[→1, 3, 5]
+Result: [1]  (1 was smaller)
+
+Step 2:
+[→2, 4, 7]
+[   →3, 5]
+Result: [1, 2]  (2 was smaller)
+
+Step 3:
+[  →4, 7]
+[  →3, 5]
+Result: [1, 2, 3]  (3 was smaller)
+
+Step 4:
+[   →4, 7]
+[      →5]
+Result: [1, 2, 3, 4]  (4 was smaller)
+
+Step 5:
+[      →7]
+[      →5]
+Result: [1, 2, 3, 4, 5]  (5 was smaller)
+
+Step 6:
+[      →7]
+[        ]
+Result: [1, 2, 3, 4, 5, 7]  (7 was all that's left)
 
 We probably need:
 
@@ -313,8 +345,8 @@ public static void splitAndMergeSort(int[] arr) {
     int[] left = Arrays.copyOfRange(arr, 0, mid);
     int[] right = Arrays.copyOfRange(arr, mid, arr.length);
     
-    regularSort(left);
-    regularSort(right);
+    insertionSort(left);
+    insertionSort(right);
     
     // Merging part:
     int leftPos = 0;
@@ -328,6 +360,10 @@ public static void splitAndMergeSort(int[] arr) {
 ```
 
 Try completing this implementation yourself!
+
+[Space for implementation...]
+
+Now that we have our merge implementation working, let's step back and look at what we've built.
 
 ## A Curious Observation
 
@@ -343,8 +379,8 @@ public static void splitAndMergeSort(int[] arr) {
     int[] right = Arrays.copyOfRange(arr, mid, arr.length);
     
     // 2. Sort each half
-    regularSort(left);
-    regularSort(right);
+    insertionSort(left);
+    insertionSort(right);
     
     // 3. Merge the sorted halves
     // (our merge code from before)
@@ -357,7 +393,7 @@ Look at what we're doing with each half:
 2. Sort it
 3. Ensure it's ready for merging
 
-But wait... isn't that exactly what our splitAndMergeSort method does? We're using regularSort, but why? Take a moment to think about this...
+But wait... isn't that exactly what our splitAndMergeSort method does? We're using insertionSort, but why? Take a moment to think about this...
 
 [Space for thinking...]
 
@@ -367,7 +403,7 @@ Let's trace what would happen if we used splitAndMergeSort recursively. Take thi
 [7, 2, 4, 1, 5, 3]
 ```
 
-Try drawing out what would happen if splitAndMergeSort called itself instead of regularSort. Start with just the splitting part:
+Try drawing out what would happen if splitAndMergeSort called itself instead of insertionSort. Start with just the splitting part:
 
 [Space for drawing the recursion tree...]
 
@@ -427,13 +463,52 @@ public static void splitAndMergeSort(int[] arr) {
     int[] left = Arrays.copyOfRange(arr, 0, mid);
     int[] right = Arrays.copyOfRange(arr, mid, arr.length);
     
-    // What should go here instead of regularSort?
+    // What should go here instead of insertionSort?
     
     // Merge code stays the same
 }
 ```
 
-Try completing this implementation yourself!
+Here is a complete visualization of the recursion tree:
+
+```
+Splitting Phase:                                  Merging Phase:
+                                                 
+[7, 2, 4, 1, 5, 3]                              [1, 2, 3, 4, 5, 7]
+↙               ↘                                ↖               ↗
+[7, 2, 4]    [1, 5, 3]         →        [2, 4, 7]    [1, 3, 5]
+↙     ↘      ↙     ↘                     ↖     ↗      ↖     ↗
+[7]  [2,4]  [1]  [5,3]         →        [7]  [2,4]  [1]  [3,5]
+    ↙   ↘       ↙   ↘                        ↖   ↗       ↖   ↗
+    [2] [4]     [5] [3]        →            [2] [4]     [5] [3]
+
+Let's follow one merge path in detail:
+[2] and [4] merge into [2,4]:
+  Compare: 2 < 4  →  Take 2  →  Take 4
+
+[2,4] and [7] merge into [2,4,7]:
+  Compare: 2 < 7  →  Take 2
+  Compare: 4 < 7  →  Take 4
+  Only 7 remains  →  Take 7
+
+[2,4,7] and [1,3,5] merge into final result:
+  Compare: 2 > 1  →  Take 1
+  Compare: 2 < 3  →  Take 2
+  Compare: 4 > 3  →  Take 3
+  Compare: 4 < 5  →  Take 4
+  Compare: 7 > 5  →  Take 5
+  Only 7 remains  →  Take 7
+```
+
+This visualization shows both phases of merge sort:
+
+1. Splitting phase (left side): we keep dividing until we get to single elements
+2. Merging phase (right side): we combine sorted pieces into larger sorted arrays
+
+Each arrow (↙↘) in the splitting phase shows where we divide the array
+Each arrow (↖↗) in the merging phase shows which pieces we're combining
+
+Notice how we can trace any piece of the final sorted array back through its merging steps to see how it got to its final position!
 
 ## Understanding the Efficiency
 
@@ -528,6 +603,17 @@ With N = 16:
 
 This special number (how many times you can divide by 2) has a name - it's the logarithm base 2! We write it as log₂(N).
 
+Think about why this makes sense:
+
+- When N = 8: We divide by 2 three times (8 → 4 → 2 → 1), so log₂(8) = 3
+- When N = 16: We divide by 2 four times (16 → 8 → 4 → 2 → 1), so log₂(16) = 4
+
+Each time we double our input size, we need just one more split. That's pretty efficient!
+
+> Wondering about logarithms? Here's a helpful way to think about them: if you keep dividing a number by 2 until you get to 1, the number of divisions you had to do is the logarithm base 2 of your starting number. For example:
+>
+> - 32 → 16 → 8 → 4 → 2 → 1 (5 divisions, so log₂(32) = 5)
+
 ## Putting It All Together
 
 Let's summarize what we've discovered:
@@ -555,13 +641,13 @@ This means our algorithm is O(N log N). Is this better than our original O(N²)?
 Let's compare with some actual numbers:
 
 ```
-N     |  N²   |  N log₂(N)
--------------------------
-8     |  64   |  24
-16    |  256  |  64
-32    |  1024 |  160
-64    |  4096 |  384
-128   |  16384|  896
+N      |    N²    |  N log₂(N)
+--------------------------------
+8      |    64    |     24
+16     |   256    |     64
+32     |  1024    |    160
+64     |  4096    |    384
+128    | 16384    |    896
 ```
 
 Try adding a few more rows yourself! What do you notice about how these numbers grow?
@@ -569,6 +655,96 @@ Try adding a few more rows yourself! What do you notice about how these numbers 
 [Space for calculations...]
 
 Remember our original problem? We wanted to do better than checking every element against every other element (N²). And we did! Instead of the work doubling four times when we double N (like in N²), it only doubles three times (like in N log N).
+
+## One More Thing to Think About
+
+While we've figured out how much time our algorithm takes, there's something else we should consider. Look back at our code - what resources are we using besides time?
+
+Take a moment to think about what happens in memory when we run our algorithm...
+
+[Space for thinking...]
+
+Did you notice that we're creating new arrays at each split?
+
+- First split: two arrays of size N/2
+- Next splits: four arrays of size N/4
+- And so on...
+
+Plus, when we merge, we need space to store our temporary results.
+
+Try drawing out all the arrays we create when sorting [7, 2, 4, 1, 5, 3]. How much extra space are we using?
+
+```
+Memory Usage During Split Phase:
+                                              Extra Space
+Original:  [7, 2, 4, 1, 5, 3]                    Used: 0
+           ↓
+Level 1:   [7, 2, 4 | 1, 5, 3]
+           ↓
+Split 1:   [7, 2, 4] and [1, 5, 3]               Used: N
+           ↓
+Level 2:   [7 | 2, 4] and [1 | 5, 3]
+           ↓
+Split 2:   [7] and [2, 4] and [1] and [5, 3]     Used: N
+           ↓
+Level 3:   [7] and [2 | 4] and [1] and [5 | 3]
+           ↓
+Split 3:   [7] [2] [4] [1] [5] [3]               Used: N
+
+Memory Snapshot at Deepest Level:
+┌─────────────────────────┐
+│ Original Array          │
+│ [7, 2, 4, 1, 5, 3]      │ N spaces
+├─────────────────────────┤
+│ Temporary Arrays        │
+│ Left: [7, 2, 4]         │ N/2 spaces
+│ Right: [1, 5, 3]        │ N/2 spaces
+│                         │
+│ Working Arrays          │
+│ [7] [2] [4]             │ } Together
+│ [1] [5] [3]             │ } use N spaces
+└─────────────────────────┘
+
+Total peak memory: Original array (N) + Temporary arrays (N)
+                 = 2N spaces
+
+Key Insight: While we create many small arrays, we reuse space!
+When merging [2] and [4], we discard these arrays after creating [2,4].
+The space gets reused for the next merge.
+```
+
+Memory Usage During Critical Merge Steps:
+
+```
+Step 1: Merging [2] and [4]
+[7] │ [2] [4] │ [1] │ [5] [3]   ← Active arrays
+    │   ↓↓↓   │     │
+[7] │  [2,4]  │ [1] │ [5] [3]   Memory freed: small arrays reused
+
+Step 2: Merging [2,4] with [7]
+[7]  ←→  [2,4] │ [1] │ [5,3]    ← Notice: previous level's space reused
+     ↓↓↓       │     │
+   [2,4,7]     │ [1] │ [5,3]    
+
+Final Merge: [2,4,7] with [1,3,5]
+
+     [2,4,7] ←--→ [1,3,5]     ← Only one merge active at a time
+              ↓↓↓
+         [1,2,3,4,5,7]        ← Final result in original array
+```
+
+Interesting observation: while we're creating many arrays, we're not using them all at the same time. At any moment:
+
+1. We're splitting one array into two pieces, OR
+2. We're merging two arrays back together
+
+The most space we need at once is about the same as the size of our original array (N).
+
+This extra space usage is what computer scientists call "space complexity" - and for our merge sort, it's O(N). This means we need extra space proportional to the size of our input.
+
+Is this a problem? Well, it depends! If we're sorting a small array, probably not. But what if we were sorting millions of numbers? Or what if we were sorting on a device with limited memory?
+
+These are the kinds of questions that lead computer scientists to develop variations of merge sort that use less extra space - but that's a puzzle for another day!
 
 ## The Final Algorithm
 

@@ -1,28 +1,60 @@
-/// We derive Deserialize/Serialize so we can persist app state on shutdown.
+use eframe::egui;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+enum CheckpointStatus {
+    NotStarted,
+    InProgress,
+    Completed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Checkpoint {
+    id: String,
+    description: String,
+    status: CheckpointStatus,
+}
+
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct LearningApp {
     label: String,
-    current_question: usize,
-    total_questions: usize,
-    assignment_title: String,
-    assignment_started: bool,
-    current_question_answered: bool,
-
-    #[serde(skip)]
-    value: f32,
+    checkpoints: Vec<Checkpoint>,
+    reset_modal_open: bool, // State variable for managing reset confirmation modal
 }
 
 impl Default for LearningApp {
     fn default() -> Self {
         Self {
             label: "Hello World!".to_owned(),
-            value: 2.7,
-            current_question: 0,
-            total_questions: 0,
-            assignment_title: "".to_owned(),
-            assignment_started: false,
-            current_question_answered: false,
+            checkpoints: vec![
+                Checkpoint {
+                    id: "inefficiency_discovery".to_string(),
+                    description: "Understanding sorting inefficiency".to_string(),
+                    status: CheckpointStatus::InProgress,
+                },
+                Checkpoint {
+                    id: "splitting_insight".to_string(),
+                    description: "Discovering divide-and-conquer benefit".to_string(),
+                    status: CheckpointStatus::NotStarted,
+                },
+                Checkpoint {
+                    id: "merging_development".to_string(),
+                    description: "Understanding systematic merging".to_string(),
+                    status: CheckpointStatus::NotStarted,
+                },
+                Checkpoint {
+                    id: "recursive_pattern".to_string(),
+                    description: "Grasping recursive nature".to_string(),
+                    status: CheckpointStatus::NotStarted,
+                },
+                Checkpoint {
+                    id: "efficiency_analysis".to_string(),
+                    description: "Comprehending O(n log n) complexity".to_string(),
+                    status: CheckpointStatus::NotStarted,
+                },
+            ],
+            reset_modal_open: false,
         }
     }
 }
@@ -32,142 +64,123 @@ impl LearningApp {
         if let Some(storage) = cc.storage {
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
-
         Default::default()
     }
 
-    fn render_top_panel(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            // Center section - Controls
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                // Start Assignment button
-                if ui
-                    .button(if !self.assignment_started {
-                        "▶ Start"
-                    } else {
-                        "Started"
-                    })
-                    .clicked()
-                {
-                    self.assignment_started = true;
-                }
+    fn reset_to_default(&mut self) {
+        *self = Default::default();
+    }
 
-                // Reset Session button
-                if ui.button("↺ Reset Session").clicked() {
-                    self.assignment_started = false;
-                    self.current_question = 1;
-                    self.current_question_answered = false;
-                }
+    fn render_side_panel(&mut self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new("Learning Progress")
+                    .size(18.0)
+                    .heading(),
+            );
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(8.0);
 
-                ui.separator();
+            // Render checkpoints
+            self.checkpoints
+                .iter()
+                .enumerate()
+                .for_each(|(index, checkpoint)| {
+                    ui.horizontal(|ui| {
+                        ui.add_space(8.0);
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            // Show number + description or ???
+                            let display_text = match checkpoint.status {
+                                CheckpointStatus::Completed => {
+                                    format!("{}. {} ✔", index + 1, checkpoint.description)
+                                }
+                                CheckpointStatus::InProgress => {
+                                    format!("{}.   ? ? ? (In Progress... ⏳)", index + 1)
+                                }
+                                CheckpointStatus::NotStarted => {
+                                    format!("{}.   ? ? ?", index + 1)
+                                }
+                            };
 
-                // Question navigation
-                ui.horizontal(|ui| {
-                    if ui.button("⏴").clicked() && self.current_question > 1 {
-                        self.current_question -= 1;
-                    }
-                    ui.label(format!(
-                        "Question {} of {}",
-                        self.current_question, self.total_questions
-                    ));
-                    if ui.button("⏵").clicked() && self.current_question < self.total_questions {
-                        self.current_question += 1;
-                    }
+                            ui.label(egui::RichText::new(display_text).size(15.0));
+                        });
+                    });
+                    ui.add_space(4.0);
                 });
 
-                ui.separator();
+            ui.add_space(8.0);
+            ui.separator();
 
-                // Mark as Answered button
-                let answer_button = egui::Button::new(if self.current_question_answered {
-                    "☑ Answered?"
-                } else {
-                    "☐ Answered?"
-                });
-                if ui.add(answer_button).clicked() {
-                    self.current_question_answered = !self.current_question_answered;
-                }
+            if ui.button("🔄 Reset Assignment").clicked() {
+                self.reset_modal_open = true;
+            }
 
-                // Submit Assignment button
-                if ui.button("🏆 Submit").clicked() {
-                    // Handle submission
-                }
+            ui.add_space(8.0);
+            ui.separator();
 
-                ui.separator();
-                egui::widgets::global_theme_preference_buttons(ui);
-                ui.separator();
-                egui::gui_zoom::zoom_menu_buttons(ui);
-            });
+            egui::widgets::global_theme_preference_buttons(ui);
+            ui.separator();
+            egui::gui_zoom::zoom_menu_buttons(ui);
         });
+    }
+
+    fn render_reset_modal(&mut self, ctx: &egui::Context) {
+        if self.reset_modal_open {
+            egui::Window::new("Reset Assignment")
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label("⚠ This will reset all progress and cannot be undone!");
+                    ui.add_space(16.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Yes, Reset Everything").clicked() {
+                            self.reset_to_default();
+                            self.reset_modal_open = false;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.reset_modal_open = false;
+                        }
+                    });
+                });
+        }
     }
 }
 
 impl eframe::App for LearningApp {
-    /// Called by the frame work to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
     }
 
-    /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::Area::new("splash".into())
-            .order(egui::Order::Background)
-            .default_width(f32::INFINITY)
-            .fixed_pos(egui::Pos2 { x: 32.0, y: 0.0 })
-            .show(ctx, |ui| {
-                egui::ScrollArea::horizontal()
-                    .max_width(f32::INFINITY)
-                    .show(ui, |ui| {
-                        ui.set_opacity(0.42);
-                        ui.horizontal_centered(|ui| {
-                            ui.label(egui::RichText::new("ITSC 2214 -").size(42.0).heading());
-                            ui.label(egui::RichText::new("MergeSort").size(60.0).heading());
-                            ui.add_space(32.0);
-                            ui.set_opacity(1.0);
-
-                            self.render_top_panel(ui);
-                        });
-                    });
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            ui.add_space(8.0);
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    egui::RichText::new("Week 12 - Recursion and MergeSort")
+                        .size(24.0)
+                        .heading(),
+                );
             });
+            ui.add_space(8.0);
+        });
+
+        egui::SidePanel::left("side_panel").show(ctx, |ui| {
+            self.render_side_panel(ui);
+        });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
-            ui.heading("eframe template");
-
             ui.horizontal(|ui| {
                 ui.label("Write something: ");
                 ui.text_edit_singleline(&mut self.label);
             });
 
-            ui.add(egui::Slider::new(&mut self.value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                self.value += 1.0;
-            }
-
-            ui.separator();
-
-            ui.add(egui::github_link_file!(
-                "https://github.com/emilk/eframe_template/blob/main/",
-                "Source code."
-            ));
-
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                powered_by_egui_and_eframe(ui);
                 egui::warn_if_debug_build(ui);
             });
         });
-    }
-}
 
-fn powered_by_egui_and_eframe(ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        ui.label("Powered by ");
-        ui.hyperlink_to("egui", "https://github.com/emilk/egui");
-        ui.label(" and ");
-        ui.hyperlink_to(
-            "eframe",
-            "https://github.com/emilk/egui/tree/master/crates/eframe",
-        );
-        ui.label(".");
-    });
+        self.render_reset_modal(ctx);
+    }
 }
