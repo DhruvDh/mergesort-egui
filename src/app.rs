@@ -4,6 +4,8 @@ use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use serde::{Deserialize, Serialize};
 
+use crate::{make_anthropic_request, PENDING_STATE};
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 enum CheckpointStatus {
     NotStarted,
@@ -24,16 +26,22 @@ pub struct ChatMessage {
     pub from_user: bool, // true if it's a user's message
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+// At the top of app.rs, modify the LearningApp struct declaration:
+
+#[derive(serde::Deserialize, serde::Serialize)] // Add Clone here
 #[serde(default)]
 pub struct LearningApp {
     label: String,
     checkpoints: Vec<Checkpoint>,
-    reset_modal_open: bool, // State variable for managing reset confirmation modal
+    reset_modal_open: bool,
     chat_history: Vec<ChatMessage>,
-    #[serde(skip)] // Caches don't need to be serialized
-    message_caches: Vec<CommonMarkCache>,
+    #[serde(skip)]
+    message_caches: Vec<CommonMarkCache>, // CommonMarkCache must also be Clone
     current_input: String,
+    #[serde(skip)]
+    error_modal: Option<String>,
+    #[serde(skip)]
+    pending_message: Option<String>,
 }
 
 impl Default for LearningApp {
@@ -71,6 +79,8 @@ impl Default for LearningApp {
             chat_history: Vec::new(),
             message_caches: Vec::new(),
             current_input: String::new(),
+            error_modal: None,
+            pending_message: None,
         }
     }
 }
@@ -218,21 +228,9 @@ impl LearningApp {
                 ));
 
                 if ui.add(button).clicked() && !self.current_input.is_empty() {
-                    // Add user's message and its cache
-                    self.chat_history.push(ChatMessage {
-                        content: self.current_input.clone(),
-                        from_user: true,
-                    });
-                    self.message_caches.push(CommonMarkCache::default());
+                    let message = self.current_input.clone();
                     self.current_input.clear();
-
-                    // Simulate a response and add its cache
-                    self.chat_history.push(ChatMessage {
-                        content: "This is a simulated response from the assistant.\n# hi\n[ ] test"
-                            .to_string(),
-                        from_user: false,
-                    });
-                    self.message_caches.push(CommonMarkCache::default());
+                    self.send_message(message);
                 }
             });
         });
@@ -258,6 +256,62 @@ impl LearningApp {
                 });
         }
     }
+
+    fn handle_api_error(&mut self, error: String) {
+        self.error_modal = Some(error);
+        if let Some(last_message) = self.chat_history.last() {
+            if last_message.from_user {
+                self.pending_message = Some(last_message.content.clone());
+            }
+        }
+    }
+
+    fn retry_last_message(&mut self) {
+        if let Some(message) = self.pending_message.take() {
+            self.send_message(message);
+        }
+        self.error_modal = None;
+    }
+
+    fn render_error_modal(&mut self, ctx: &egui::Context) {
+        // Clone the values we need for the closure
+        let error_message = self.error_modal.clone();
+        let has_pending = self.pending_message.is_some();
+
+        if let Some(error) = error_message {
+            egui::Window::new("Error")
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label("An error occurred:");
+                    ui.label(error);
+                    ui.add_space(8.0);
+                    if has_pending && ui.button("Retry").clicked() {
+                        self.retry_last_message();
+                    }
+                    if ui.button("Close").clicked() {
+                        self.error_modal = None;
+                        self.pending_message = None;
+                    }
+                });
+        }
+    }
+
+    fn send_message(&mut self, message: String) {
+        self.chat_history.push(ChatMessage {
+            content: message.clone(),
+            from_user: true,
+        });
+        self.message_caches.push(CommonMarkCache::default());
+
+        make_anthropic_request(message, |result| {
+            let mut state = PENDING_STATE.lock().unwrap();
+            match result {
+                Ok(response) => state.response = Some(response),
+                Err(error) => state.error = Some(error),
+            }
+        });
+    }
 }
 
 impl eframe::App for LearningApp {
@@ -266,6 +320,19 @@ impl eframe::App for LearningApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Check for pending messages
+        let mut state = PENDING_STATE.lock().unwrap();
+        if let Some(response) = state.response.take() {
+            self.chat_history.push(ChatMessage {
+                content: response,
+                from_user: false,
+            });
+            self.message_caches.push(CommonMarkCache::default());
+        }
+        if let Some(error) = state.error.take() {
+            self.handle_api_error(error);
+        }
+
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.add_space(8.0);
             ui.vertical_centered(|ui| {
@@ -286,5 +353,6 @@ impl eframe::App for LearningApp {
         });
 
         self.render_reset_modal(ctx);
+        self.render_error_modal(ctx);
     }
 }
