@@ -3,7 +3,8 @@
 
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
-fn main() -> eframe::Result {
+#[tokio::main]
+async fn main() -> eframe::Result {
     env_logger::init();
 
     let native_options = eframe::NativeOptions {
