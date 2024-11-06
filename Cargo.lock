@@ -2228,6 +2228,7 @@ dependencies = [
  "image",
  "lazy_static",
  "log",
+ "regex",
  "reqwasm",
  "reqwest",
  "serde",

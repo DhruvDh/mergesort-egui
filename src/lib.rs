@@ -23,6 +23,7 @@ struct AnthropicRequest {
     messages: Vec<AnthropicMessage>,
     max_tokens: Option<u32>,
     temperature: Option<f32>,
+    system: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -46,26 +47,54 @@ struct ContentItem {
     content_type: String,
 }
 
+// Add ChatMessage to the imports at the top
+use crate::app::ChatMessage;
+
+// Add these at the top, after the existing imports
+const INSTRUCTIONS: &str = include_str!("mergesort-instructions.md");
+const LESSON: &str = include_str!("mergesort-lesson.md");
+
+// Add this new function
+fn get_system_message() -> String {
+    INSTRUCTIONS.replace("{{LESSON_CONTENT}}", LESSON)
+}
+
 #[cfg(target_arch = "wasm32")]
 mod web {
     use super::*;
     use reqwasm::http::Request;
     use wasm_bindgen_futures::spawn_local;
 
-    pub fn make_anthropic_request(
+    pub(crate) fn make_anthropic_request(
         user_message: String,
+        chat_history: Vec<ChatMessage>, // Add chat_history parameter
         callback: impl Fn(Result<String, String>) + 'static,
     ) {
         let url = "https://dhruvdh-anthropic-s-50.deno.dev/";
 
-        let request_payload = AnthropicRequest {
-            messages: vec![AnthropicMessage {
-                role: "user".to_string(),
-                content: user_message,
+        let mut messages = Vec::new();
+
+        // Add all previous messages
+        for msg in chat_history {
+            messages.push(AnthropicMessage {
+                role: if msg.from_user { "user" } else { "assistant" }.to_string(),
+                content: msg.content,
                 cacheable: false,
-            }],
+            });
+        }
+
+        // Add the new message
+        messages.push(AnthropicMessage {
+            role: "user".to_string(),
+            content: user_message,
+            cacheable: false,
+        });
+
+        let request_payload = AnthropicRequest {
+            messages,
             max_tokens: Some(2048),
             temperature: Some(0.0),
+            system: get_system_message(),
         };
 
         let payload = match serde_json::to_string(&request_payload) {
@@ -118,21 +147,37 @@ mod native {
     use super::*;
     use std::sync::Arc;
 
-    pub fn make_anthropic_request(
+    pub(crate) fn make_anthropic_request(
         user_message: String,
+        chat_history: Vec<ChatMessage>, // Add chat_history parameter
         callback: impl Fn(Result<String, String>) + Send + Sync + 'static,
     ) {
         let url = "https://dhruvdh-anthropic-s-50.deno.dev/";
         let callback = Arc::new(callback);
 
-        let request_payload = AnthropicRequest {
-            messages: vec![AnthropicMessage {
-                role: "user".to_string(),
-                content: user_message,
+        let mut messages = Vec::new();
+
+        // Add all previous messages
+        for msg in chat_history {
+            messages.push(AnthropicMessage {
+                role: if msg.from_user { "user" } else { "assistant" }.to_string(),
+                content: msg.content,
                 cacheable: false,
-            }],
+            });
+        }
+
+        // Add the new message
+        messages.push(AnthropicMessage {
+            role: "user".to_string(),
+            content: user_message,
+            cacheable: false,
+        });
+
+        let request_payload = AnthropicRequest {
+            messages,
             max_tokens: Some(2048),
             temperature: Some(0.0),
+            system: get_system_message(),
         };
 
         let payload = match serde_json::to_string(&request_payload) {
@@ -183,7 +228,7 @@ mod native {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub use web::make_anthropic_request;
+pub(crate) use web::make_anthropic_request;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::make_anthropic_request;
+pub(crate) use native::make_anthropic_request;

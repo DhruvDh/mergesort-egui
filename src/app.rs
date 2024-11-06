@@ -21,9 +21,20 @@ struct Checkpoint {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatMessage {
-    pub content: String,
-    pub from_user: bool, // true if it's a user's message
+pub(crate) struct CheckpointMatch {
+    checkpoint_id: String,
+    description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct ChatMessage {
+    pub(crate) content: String,
+    pub(crate) from_user: bool,
+    pub(crate) cacheable: bool,
+    #[serde(skip)]
+    pub(crate) analyzed_for_checkpoints: bool,
+    #[serde(default)]
+    pub(crate) found_checkpoints: Vec<CheckpointMatch>,
 }
 
 // At the top of app.rs, modify the LearningApp struct declaration:
@@ -42,10 +53,27 @@ pub struct LearningApp {
     error_modal: Option<String>,
     #[serde(skip)]
     pending_message: Option<String>,
+    #[serde(skip)]
+    is_loading: bool,
 }
 
 impl Default for LearningApp {
     fn default() -> Self {
+        let initial_message = ChatMessage {
+            content: concat!(
+                "Welcome! I'm excited to help you discover MergeSort through an interactive learning experience. ",
+                "Let's start with a simple problem to get us thinking about sorting.\n\n",
+                "Imagine you have this sequence of numbers: `[7, 2, 4, 1, 5, 3]`\n\n",
+                "If you had to sort these numbers by hand, what would be your natural approach? ",
+                "How would you go about it?\n\n",
+                "Remember, there's no wrong answer here - I want to understand how you think about sorting intuitively."
+            ).to_string(),
+            from_user: false,
+            cacheable: true,
+            analyzed_for_checkpoints: false,
+            found_checkpoints: Vec::new(),
+        };
+
         Self {
             label: "Hello World!".to_owned(),
             checkpoints: vec![
@@ -76,11 +104,12 @@ impl Default for LearningApp {
                 },
             ],
             reset_modal_open: false,
-            chat_history: Vec::new(),
-            message_caches: Vec::new(),
+            chat_history: vec![initial_message],
+            message_caches: vec![CommonMarkCache::default()],
             current_input: String::new(),
             error_modal: None,
             pending_message: None,
+            is_loading: false,
         }
     }
 }
@@ -222,15 +251,27 @@ impl LearningApp {
                         .desired_width(available_width * 0.87)
                         .frame(true),
                 );
-                let button = egui::Button::new("Send").min_size(egui::vec2(
-                    available_width * 0.12,
-                    ui.spacing().interact_size.y * 4.0,
-                ));
 
-                if ui.add(button).clicked() && !self.current_input.is_empty() {
-                    let message = self.current_input.clone();
-                    self.current_input.clear();
-                    self.send_message(message);
+                let button_width = available_width * 0.12;
+                let button_height = ui.spacing().interact_size.y * 4.0;
+
+                if self.is_loading {
+                    ui.add_sized(
+                        egui::vec2(button_width, button_height),
+                        egui::Spinner::new().size(16.0),
+                    );
+                } else {
+                    let button =
+                        egui::Button::new("Send").min_size(egui::vec2(button_width, button_height));
+
+                    if ui.add(button).clicked()
+                        && !self.current_input.is_empty()
+                        && !self.is_loading
+                    {
+                        let message = self.current_input.clone();
+                        self.current_input.clear();
+                        self.send_message(message);
+                    }
                 }
             });
         });
@@ -301,16 +342,70 @@ impl LearningApp {
         self.chat_history.push(ChatMessage {
             content: message.clone(),
             from_user: true,
+            cacheable: false,
+            analyzed_for_checkpoints: false,
+            found_checkpoints: Vec::new(),
         });
         self.message_caches.push(CommonMarkCache::default());
+        self.is_loading = true;
 
-        make_anthropic_request(message, |result| {
+        // Pass the chat history before adding the new message
+        let history = self.chat_history[..self.chat_history.len() - 1].to_vec();
+
+        make_anthropic_request(message, history, |result| {
             let mut state = PENDING_STATE.lock().unwrap();
             match result {
                 Ok(response) => state.response = Some(response),
                 Err(error) => state.error = Some(error),
             }
         });
+    }
+
+    fn scan_message_for_checkpoints(&mut self, message_idx: usize) {
+        let message = &self.chat_history[message_idx];
+
+        if message.analyzed_for_checkpoints || message.from_user {
+            return;
+        }
+
+        let checkpoint_ids = [
+            "inefficiency_discovery",
+            "splitting_insight",
+            "merging_development",
+            "recursive_pattern",
+            "efficiency_analysis",
+        ];
+
+        let mut found_checkpoints = Vec::new();
+
+        for line in message.content.lines() {
+            if let Some(start) = line.find("CHECKPOINT[") {
+                if let Some(end) = line.find("]:") {
+                    let checkpoint_id = &line[(start + "CHECKPOINT[".len())..end].trim();
+
+                    if checkpoint_ids.contains(checkpoint_id) {
+                        let description = line[end + 2..].trim().to_string();
+
+                        if let Some(checkpoint) = self
+                            .checkpoints
+                            .iter_mut()
+                            .find(|c| c.id.as_str() == *checkpoint_id)
+                        {
+                            checkpoint.status = CheckpointStatus::Completed;
+
+                            found_checkpoints.push(CheckpointMatch {
+                                checkpoint_id: checkpoint_id.to_string(),
+                                description,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        let message = &mut self.chat_history[message_idx];
+        message.found_checkpoints = found_checkpoints;
+        message.analyzed_for_checkpoints = true;
     }
 }
 
@@ -326,11 +421,21 @@ impl eframe::App for LearningApp {
             self.chat_history.push(ChatMessage {
                 content: response,
                 from_user: false,
+                cacheable: false,
+                analyzed_for_checkpoints: false,
+                found_checkpoints: Vec::new(),
             });
             self.message_caches.push(CommonMarkCache::default());
+
+            let last_idx = self.chat_history.len() - 1;
+            self.scan_message_for_checkpoints(last_idx);
+
+            self.is_loading = false;
+            ctx.request_repaint();
         }
         if let Some(error) = state.error.take() {
             self.handle_api_error(error);
+            self.is_loading = false; // Reset loading state on error
         }
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
