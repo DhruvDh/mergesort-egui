@@ -2,7 +2,7 @@
 title: "The Journey to Merge Sort"
 ---
 
-## Starting with Regular Sort
+## Starting with Insertion Sort
 
 Let's begin with the most intuitive way to sort numbers. Imagine you have a sequence of numbers:
 
@@ -87,9 +87,14 @@ Can we do better?
 
 Remember how we made binary search faster - by eliminating half the search space at each step. Could we use a similar idea here?
 
-Well, not exactly the same way... In binary search, we could completely ignore one half of the array because we knew our target wasn't there. With sorting, we can't just ignore half the numbers - they all need to end up in the right place!
+With binary search, we could ignore half the array because we knew our target wasn't there. With sorting, we can't ignore any numbers - they all need to end up in the right place! But what if, instead of ignoring half the numbers, we could somehow work on them separately?
+Let's try a simple experiment. What if we:
 
-But what if, instead of ignoring half the numbers, we sorted them separately? Let's think about what that might look like:
+1. Split our array in half
+2. Sort each half using our insertion sort
+3. Put them back together
+
+Let's think about what that might look like:
 
 ```
 Original:     [7, 2, 4, 1, 5, 3]
@@ -112,69 +117,67 @@ Should we try implementing this idea? Even if it doesn't give us a fundamentally
 
 ## Trying the Split Approach
 
-Since splitting the array might save us some work, let's implement this idea:
+Since splitting might save us some work, let's implement this idea step by step:
 
 ```java
-public static void splitSort(int[] arr) {
+public static void splitAndSort(int[] arr) {
     // Base case: arrays of size 0 or 1 are already sorted
     if (arr.length <= 1) return;
     
-    // Split array in half
+    // Step 1: Split array in half
     int mid = arr.length / 2;
     int[] left = Arrays.copyOfRange(arr, 0, mid);
     int[] right = Arrays.copyOfRange(arr, mid, arr.length);
     
-    // Sort each half using our regular sort
+    // Step 2: Sort each half using insertion sort
     insertionSort(left);
     insertionSort(right);
     
-    // Put the pieces back together
+    // Step 3: Put the sorted pieces back together
+    // (Our first attempt - just copy them back in order)
     System.arraycopy(left, 0, arr, 0, left.length);
     System.arraycopy(right, 0, arr, left.length, right.length);
 }
 ```
 
-Let's try it with our example:
-
-```java
-public static void main(String[] args) {
-    int[] numbers = {7, 2, 4, 1, 5, 3};
-    System.out.println("Original array: " + Arrays.toString(numbers));
-    
-    splitSort(numbers);
-    System.out.println("After splitSort: " + Arrays.toString(numbers));
-}
-```
-
-Running this gives us:
+Let's try it with our example array and trace exactly what happens at each step:
 
 ```
 Original array: [7, 2, 4, 1, 5, 3]
-After splitSort: [2, 4, 7, 1, 3, 5]
+
+Step 1 - Split:
+  Left half:  [7, 2, 4]
+  Right half: [1, 5, 3]
+
+Step 2 - Sort each half:
+  Left half:  [2, 4, 7]   ← Sorted using insertion sort
+  Right half: [1, 3, 5]   ← Sorted using insertion sort
+
+Step 3 - Combine:
+  Result: [2, 4, 7, 1, 3, 5]   ← Oops!
 ```
 
-Wait a minute... that's not right! The numbers are sorted within each half, but when we put them back together, something's wrong. Let's look at what happened step by step:
+Wait - that's not right! The numbers are sorted within each half, but our final array isn't sorted. What went wrong?
 
-```
-┌─ Split Phase ────────────────────────┐
-|Step 1: Split    [7, 2, 4] | [1, 5, 3]|
-|Step 2: Sort L   [2, 4, 7] | [1, 5, 3]|
-|Step 3: Sort R   [2, 4, 7] | [1, 3, 5]|
-|Step 4: Combine  [2, 4, 7, 1, 3, 5]   |
-└──────────────────────────────────────┘
-```
+Let's look more carefully at what we have:
 
-Ah! Even though each half is sorted, 7 is greater than 1, so just putting the sorted halves next to each other doesn't work.
+- Left half ([2, 4, 7]) is correctly sorted
+- Right half ([1, 3, 5]) is correctly sorted
+- But notice: 7 is greater than 1!
 
 Before we continue, take a moment to think:
 
 - What information do we have that we're not using?
 - Is there something special about these two halves that could help us?
-- If you had to combine these by hand, how would you do it?
-
-Try working through combining [2, 4, 7] and [1, 3, 5] by hand. What strategy would you use?
+- What different approaches might fix this problem?
 
 [Space for thinking...]
+
+Our simple approach of copying the halves back in order failed because numbers might need to end up in different positions than where they started. But we do know something useful - each half is already sorted!
+
+Let's explore how we might use this information. Try working through combining [2, 4, 7] and [1, 3, 5] by hand. What strategy would you use?
+
+[Space for working it out...]
 
 Let's explore some possible strategies:
 
@@ -363,39 +366,97 @@ Try completing this implementation yourself!
 
 [Space for implementation...]
 
-Now that we have our merge implementation working, let's step back and look at what we've built.
+## From One Split to Many
 
-## A Curious Observation
+Remember how splitting once helped reduce our work? Let's explore this further with larger arrays.
 
-Now that we have a working splitAndMergeSort, let's look at it again:
+Consider sorting: [9, 3, 7, 1, 8, 2, 6, 5, 4]
+
+With one split:
+
+```
+Original:      [9, 3, 7, 1, 8, 2, 6, 5, 4]
+Split once:    [9, 3, 7, 1] | [8, 2, 6, 5, 4]
+After sorting: [1, 3, 7, 9] | [2, 4, 5, 6, 8]
+Merged:        [1, 2, 3, 4, 5, 6, 7, 8, 9]
+```
+
+This worked, but sorting those halves still takes quite a bit of work (as N is relatively large even after the first split). What if we split each half again?
+
+```
+Level 1:      [9, 3, 7, 1, 8, 2, 6, 5, 4]
+              /                          \
+Level 2:  [9, 3, 7, 1]             [8, 2, 6, 5, 4]
+          /           \             /             \
+Level 3: [9, 3]    [7, 1]      [8, 2]        [6, 5, 4]
+```
+
+Now we're dealing with much smaller pieces!
+
+Let's count the work at each level:
+
+- Level 2: Sorting 4 numbers and 5 numbers (easier than 9!)
+- Level 3: Sorting pairs and triples (even easier!)
+
+For even larger arrays, this pattern becomes more valuable. Take [15, 3, 9, 8, 2, 7, 1, 14, 12, 10, 4, 6, 5, 13, 11]:
+
+```
+With one split:
+[15, 3, 9, 8, 2, 7, 1] | [14, 12, 10, 4, 6, 5, 13, 11]
+Still need to sort 7-8 numbers each side (quite a bit of work!)
+
+With two splits:
+Level 1: [15, 3, 9, 8, 2, 7, 1, 14, 12, 10, 4, 6, 5, 13, 11]
+Level 2: [15, 3, 9, 8] | [2, 7, 1, 14] | [12, 10, 4, 6] | [5, 13, 11]
+Now dealing with groups of 4 (much better!)
+
+With three splits:
+Level 3: [15, 3] | [9, 8] | [2, 7] | [1, 14] | [12, 10] | [4, 6] | [5, 13] | [11]
+Just pairs and singles (really easy!)
+```
+
+Do you see the pattern emerging? As our input gets larger:
+
+1. One split helps some
+2. Two splits helps more
+3. Three splits helps even more
+4. And so on...
+
+For really large arrays, we'd want to keep splitting until we can't split anymore. When do we stop? When we get down to single elements - which are already sorted by definition!
+
+This leads us to a powerful insight: instead of arbitrarily choosing how many times to split, why not just keep splitting recursively until we reach single elements? When do we stop? When we get down to single elements and can't split anymore!
+
+Actually, now that you think about it, single element arrays are already sorted! Meaning we can just use our existing merge code to combine them back together.
+
+## Making Our Code Split Recursively
+
+Let's look back at our current implementation:
 
 ```java
 public static void splitAndMergeSort(int[] arr) {
     if (arr.length <= 1) return;
     
-    // 1. Split
     int mid = arr.length / 2;
     int[] left = Arrays.copyOfRange(arr, 0, mid);
     int[] right = Arrays.copyOfRange(arr, mid, arr.length);
     
-    // 2. Sort each half
-    insertionSort(left);
-    insertionSort(right);
+    insertionSort(left);    // <-- This is interesting...
+    insertionSort(right);   // <-- And this too...
     
-    // 3. Merge the sorted halves
-    // (our merge code from before)
+    // Merge code...
 }
 ```
 
-Look at what we're doing with each half:
+Notice something about these insertionSort calls? We're using them to ensure each half is sorted before merging. But we just discovered that splitting recursively until we reach single elements could work better! Single elements are already sorted, so we can just merge them back together using our existing merge procedure.
 
-1. Take an array
-2. Sort it
-3. Ensure it's ready for merging
+So then why not use splitAndMergeSort itself on each half? After all, splitAndMergeSort already knows how to:
 
-But wait... isn't that exactly what our splitAndMergeSort method does? We're using insertionSort, but why? Take a moment to think about this...
+1. Take an array of any size
+2. Split it into smaller pieces
+3. Ensure those pieces end up sorted
+4. Merge them back together
 
-[Space for thinking...]
+Let's trace what would happen with a simple example: [7, 2, 4, 1, 5, 3]
 
 Let's trace what would happen if we used splitAndMergeSort recursively. Take this example:
 
@@ -456,14 +517,14 @@ Try tracing through this with a small example of your own before continuing...
 Should we try modifying our code to use this recursive approach? Here's a template:
 
 ```java
-public static void splitAndMergeSort(int[] arr) {
+public static void mergeSort(int[] arr) { // <-- We're changing this name
     if (arr.length <= 1) return;
     
     int mid = arr.length / 2;
     int[] left = Arrays.copyOfRange(arr, 0, mid);
     int[] right = Arrays.copyOfRange(arr, mid, arr.length);
     
-    // What should go here instead of insertionSort?
+    // What should go here instead of insertionSort calls?
     
     // Merge code stays the same
 }

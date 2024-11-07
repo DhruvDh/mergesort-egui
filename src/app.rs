@@ -37,6 +37,71 @@ pub(crate) struct ChatMessage {
     pub(crate) found_checkpoints: Vec<CheckpointMatch>,
 }
 
+#[derive(Debug)]
+struct ScrollState {
+    viewport_height: f32,
+    total_height: f32,
+    message_heights: Vec<f32>,
+    scroll_offset: f32,
+    estimated_message_height: f32,
+}
+
+impl ScrollState {
+    fn new() -> Self {
+        Self {
+            viewport_height: 0.0,
+            total_height: 0.0,
+            message_heights: Vec::new(),
+            scroll_offset: 0.0,
+            estimated_message_height: 100.0, // Initial estimate
+        }
+    }
+
+    fn update_message_height(&mut self, idx: usize, height: f32) {
+        if idx >= self.message_heights.len() {
+            self.message_heights
+                .resize(idx + 1, self.estimated_message_height);
+        }
+        self.message_heights[idx] = height;
+        self.recalculate_total_height();
+    }
+
+    fn recalculate_total_height(&mut self) {
+        self.total_height = self.message_heights.iter().sum();
+    }
+
+    fn get_visible_range(&self) -> (usize, usize) {
+        let mut current_height = 0.0;
+        let mut start_idx = 0;
+        let mut end_idx = self.message_heights.len();
+
+        // Find start index
+        for (idx, height) in self.message_heights.iter().enumerate() {
+            if current_height + height > self.scroll_offset {
+                start_idx = idx;
+                break;
+            }
+            current_height += height;
+        }
+
+        // Find end index
+        current_height = 0.0;
+        for (idx, height) in self.message_heights.iter().enumerate() {
+            current_height += height;
+            if current_height > self.scroll_offset + self.viewport_height {
+                end_idx = idx + 1;
+                break;
+            }
+        }
+
+        // Add buffer
+        start_idx = start_idx.saturating_sub(2);
+        end_idx = (end_idx + 2).min(self.message_heights.len());
+
+        (start_idx, end_idx)
+    }
+}
+
 // At the top of app.rs, modify the LearningApp struct declaration:
 
 #[derive(serde::Deserialize, serde::Serialize)] // Add Clone here
@@ -55,6 +120,8 @@ pub struct LearningApp {
     pending_message: Option<String>,
     #[serde(skip)]
     is_loading: bool,
+    #[serde(skip)]
+    scroll_state: ScrollState,
 }
 
 impl Default for LearningApp {
@@ -110,6 +177,7 @@ impl Default for LearningApp {
             error_modal: None,
             pending_message: None,
             is_loading: false,
+            scroll_state: ScrollState::new(),
         }
     }
 }
@@ -135,7 +203,7 @@ impl LearningApp {
     fn render_side_panel(&mut self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             ui.label(
-                egui::RichText::new("Learning Progress")
+                egui::RichText::new("Checkpoint Progress")
                     .size(18.0)
                     .heading(),
             );
@@ -200,17 +268,42 @@ impl LearningApp {
     }
 
     fn render_chat_panel(&mut self, ui: &mut egui::Ui) {
-        ui.vertical(|ui| {
-            // Calculate user message background color once
-            let user_msg_bg = if ui.visuals().dark_mode {
-                egui::Color32::from_rgb(75, 85, 99) // Dark gray for dark mode
-            } else {
-                egui::Color32::from_rgb(254, 243, 199) // Yellow for light mode
-            };
+        let available_height = ui.available_height();
+        let (user_msg_bg, user_msg_stroke) = if ui.visuals().dark_mode {
+            (egui::Color32::from_rgb(75, 85, 99), egui::Color32::WHITE)
+        } else {
+            (egui::Color32::from_rgb(254, 243, 199), egui::Color32::BLACK)
+        };
 
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                for (idx, message) in self.chat_history.iter().enumerate() {
-                    if message.from_user {
+        self.scroll_state.viewport_height = available_height;
+
+        // Ensure we have height estimates for all messages
+        if self.scroll_state.message_heights.len() < self.chat_history.len() {
+            self.scroll_state.message_heights.resize(
+                self.chat_history.len(),
+                self.scroll_state.estimated_message_height,
+            );
+            self.scroll_state.recalculate_total_height();
+        }
+
+        ui.vertical(|ui| {
+            let scroll_area = egui::ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .max_height(available_height - 100.0); // Leave space for input area
+
+            scroll_area.show(ui, |ui| {
+                // Get visible range
+                let (start_idx, end_idx) = self.scroll_state.get_visible_range();
+
+                // Add spacing for messages above viewport
+                let space_above: f32 = self.scroll_state.message_heights[..start_idx].iter().sum();
+                ui.add_space(space_above);
+                let old_override_text_color = ui.style().visuals.override_text_color;
+                ui.style_mut().visuals.override_text_color = Some(user_msg_stroke);
+                // Render visible messages
+                for idx in start_idx..end_idx {
+                    let message = &self.chat_history[idx];
+                    let response = if message.from_user {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                             egui::Frame::none()
                                 .fill(user_msg_bg)
@@ -222,58 +315,79 @@ impl LearningApp {
                                         &mut self.message_caches[idx],
                                         &message.content,
                                     );
-                                });
-                        });
+                                })
+                                .inner
+                        })
                     } else {
-                        egui::Frame::none()
-                            .fill(ui.visuals().extreme_bg_color)
-                            .rounding(egui::Rounding::same(10.0))
-                            .inner_margin(egui::Margin::symmetric(10.0, 10.0))
-                            .show(ui, |ui| {
-                                CommonMarkViewer::new().show(
-                                    ui,
-                                    &mut self.message_caches[idx],
-                                    &message.content,
-                                );
-                            });
-                    }
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
+                            egui::Frame::none()
+                                .fill(ui.visuals().extreme_bg_color)
+                                .rounding(egui::Rounding::same(10.0))
+                                .inner_margin(egui::Margin::symmetric(10.0, 10.0))
+                                .show(ui, |ui| {
+                                    CommonMarkViewer::new().show(
+                                        ui,
+                                        &mut self.message_caches[idx],
+                                        &message.content,
+                                    );
+                                })
+                                .inner
+                        })
+                    };
+
+                    // Update message height
+                    let rect = response.response.rect;
+                    self.scroll_state
+                        .update_message_height(idx, rect.height() + 10.0); // Add spacing
+
                     ui.add_space(10.0);
                 }
+                ui.style_mut().visuals.override_text_color = old_override_text_color;
+
+                // Add spacing for messages below viewport
+                let space_below: f32 = self.scroll_state.message_heights[end_idx..].iter().sum();
+                ui.add_space(space_below);
             });
 
-            // Input area
-            ui.horizontal(|ui| {
-                let available_width = ui.available_width();
-                ui.add(
-                    egui::TextEdit::multiline(&mut self.current_input)
-                        .hint_text("Type your message here...")
-                        .desired_rows(5)
-                        .desired_width(available_width * 0.87)
-                        .frame(true),
-                );
+            // Input area with frame
+            egui::Frame::none()
+                .fill(ui.visuals().faint_bg_color)
+                .inner_margin(egui::Margin::same(8.0))
+                .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let available_width = ui.available_width();
+                        ui.add(
+                            egui::TextEdit::multiline(&mut self.current_input)
+                                .hint_text("Type your message here...")
+                                .desired_rows(5)
+                                .desired_width(available_width * 0.87)
+                                .frame(true),
+                        );
 
-                let button_width = available_width * 0.12;
-                let button_height = ui.spacing().interact_size.y * 4.0;
+                        let button_width = available_width * 0.12;
+                        let button_height = ui.spacing().interact_size.y * 4.0;
 
-                if self.is_loading {
-                    ui.add_sized(
-                        egui::vec2(button_width, button_height),
-                        egui::Spinner::new().size(16.0),
-                    );
-                } else {
-                    let button =
-                        egui::Button::new("Send").min_size(egui::vec2(button_width, button_height));
+                        if self.is_loading {
+                            ui.add_sized(
+                                egui::vec2(button_width, button_height),
+                                egui::Spinner::new().size(16.0),
+                            );
+                        } else {
+                            let button = egui::Button::new("Send")
+                                .min_size(egui::vec2(button_width, button_height));
 
-                    if ui.add(button).clicked()
-                        && !self.current_input.is_empty()
-                        && !self.is_loading
-                    {
-                        let message = self.current_input.clone();
-                        self.current_input.clear();
-                        self.send_message(message);
-                    }
-                }
-            });
+                            if ui.add(button).clicked()
+                                && !self.current_input.is_empty()
+                                && !self.is_loading
+                            {
+                                let message = self.current_input.clone();
+                                self.current_input.clear();
+                                self.send_message(message);
+                            }
+                        }
+                    });
+                });
         });
     }
 
