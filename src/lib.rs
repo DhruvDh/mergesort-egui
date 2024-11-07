@@ -10,11 +10,13 @@ use std::sync::Mutex;
 lazy_static! {
     static ref SUPABASE_URL: String = {
         dotenvy::dotenv().ok();
-        std::env::var("SUPABASE_URL").expect("SUPABASE_URL must be set")
+        std::env::var("SUPABASE_URL")
+            .unwrap_or_else(|_| String::from("https://oxrtehafaszdaaqejbwo.supabase.co"))
     };
     static ref SUPABASE_ANON_KEY: String = {
         dotenvy::dotenv().ok();
-        std::env::var("SUPABASE_ANON_KEY").expect("SUPABASE_ANON_KEY must be set")
+        std::env::var("SUPABASE_ANON_KEY")
+            .unwrap_or_else(|_| String::from("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94cnRlaGFmYXN6ZGFhcWVqYndvIiwicm9sZSI6ImFub24iLCJpYXQiOjE2OTYxNzk0ODQsImV4cCI6MjAxMTc1NTQ4NH0.OQsCbESP2HVChXWAKx1KjlrdTCocyluA3bFX-GlOwtQ"))
     };
 }
 
