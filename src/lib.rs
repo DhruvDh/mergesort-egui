@@ -3,16 +3,21 @@
 mod app;
 pub use app::LearningApp;
 
+use dotenvy;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
-// Add these near the top with other uses
-use dotenv_codegen::dotenv;
-
-// Add these constants after other const declarations
-const SUPABASE_URL: &str = dotenv!("SUPABASE_URL");
-const SUPABASE_ANON_KEY: &str = dotenv!("SUPABASE_ANON_KEY");
+lazy_static! {
+    static ref SUPABASE_URL: String = {
+        dotenvy::dotenv().ok();
+        std::env::var("SUPABASE_URL").expect("SUPABASE_URL must be set")
+    };
+    static ref SUPABASE_ANON_KEY: String = {
+        dotenvy::dotenv().ok();
+        std::env::var("SUPABASE_ANON_KEY").expect("SUPABASE_ANON_KEY must be set")
+    };
+}
 
 // Add these structures after other struct definitions
 #[derive(Debug, Serialize)]
@@ -184,10 +189,9 @@ pub async fn request_otp_native(email: &str) -> Result<(), String> {
         email: email.to_string(),
         create_user: true,
     };
-
     let response = client
-        .post(format!("{}/auth/v1/otp", SUPABASE_URL))
-        .header("apikey", SUPABASE_ANON_KEY)
+        .post(format!("{}/auth/v1/otp", SUPABASE_URL.as_str()))
+        .header("apikey", SUPABASE_ANON_KEY.as_str())
         .header("Content-Type", "application/json")
         .json(&request)
         .send()
@@ -212,8 +216,8 @@ pub async fn verify_otp_native(email: &str, token: &str) -> Result<(), String> {
     };
 
     let response = client
-        .post(format!("{}/auth/v1/verify", SUPABASE_URL))
-        .header("apikey", SUPABASE_ANON_KEY)
+        .post(format!("{}/auth/v1/verify", SUPABASE_URL.as_str()))
+        .header("apikey", SUPABASE_ANON_KEY.as_str())
         .header("Content-Type", "application/json")
         .json(&request)
         .send()
