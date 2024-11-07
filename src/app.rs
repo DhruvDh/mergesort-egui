@@ -156,6 +156,7 @@ enum AuthStep {
     HaveCode,
 }
 
+#[allow(dead_code)]
 enum AuthMessage {
     OTPRequested(Result<(), String>),
     OTPVerified(Result<(), String>),
@@ -703,28 +704,18 @@ impl LearningApp {
         }
 
         let email = self.auth_email.clone();
+        let tx = self.auth_tx.clone();
 
         #[cfg(target_arch = "wasm32")]
         {
-            let app_ptr = self as *mut LearningApp;
             spawn_local(async move {
-                let app = unsafe { &mut *app_ptr };
-                match request_otp_web(&email).await {
-                    Ok(_) => {
-                        app.auth_step = AuthStep::EnterCode;
-                        app.auth_error = None;
-                    }
-                    Err(e) => {
-                        log::error!("OTP request error: {}", e);
-                        app.auth_error = Some(format!("Error: {}", e));
-                    }
-                }
+                let result = request_otp_web(&email).await;
+                let _ = tx.send(AuthMessage::OTPRequested(result));
             });
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let tx = self.auth_tx.clone();
             tokio::spawn(async move {
                 let result = request_otp_native(&email).await;
                 let _ = tx.send(AuthMessage::OTPRequested(result));
@@ -750,40 +741,18 @@ impl LearningApp {
 
         let email = self.auth_email.clone();
         let token = self.auth_code.clone();
+        let tx = self.auth_tx.clone();
 
         #[cfg(target_arch = "wasm32")]
         {
-            let app_ptr = self as *mut LearningApp;
             spawn_local(async move {
-                let app = unsafe { &mut *app_ptr };
-                match verify_otp_web(&email, &token).await {
-                    Ok(_) => {
-                        app.auth_modal_open = false;
-                        app.auth_error = None;
-                    }
-                    Err(e) => {
-                        log::error!("OTP verification error: {}", e);
-                        app.auth_error = Some(match e.as_str() {
-                            s if s.contains("otp_expired") => {
-                                "Code has expired or is invalid. Please try again.".to_string()
-                            }
-                            s if s.contains("invalid_token") => {
-                                "Invalid code. Please check and try again.".to_string()
-                            }
-                            s if s.contains("rate_limit") => {
-                                "Too many attempts. Please wait a few minutes before trying again."
-                                    .to_string()
-                            }
-                            _ => format!("Error: {}", e),
-                        });
-                    }
-                }
+                let result = verify_otp_web(&email, &token).await;
+                let _ = tx.send(AuthMessage::OTPVerified(result));
             });
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let tx = self.auth_tx.clone();
             tokio::spawn(async move {
                 let result = verify_otp_native(&email, &token).await;
                 let _ = tx.send(AuthMessage::OTPVerified(result));
@@ -800,8 +769,7 @@ impl eframe::App for LearningApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Check for auth messages
-        #[cfg(not(target_arch = "wasm32"))]
+        // Check for auth messages on both platforms
         while let Ok(msg) = self.auth_rx.try_recv() {
             match msg {
                 AuthMessage::OTPRequested(result) => {
@@ -812,10 +780,10 @@ impl eframe::App for LearningApp {
                         }
                         Err(e) => {
                             self.auth_error = Some(match e.as_str() {
-                            s if s.contains("over_email_send_rate_limit") => 
-                                "Too many attempts. Please wait a few minutes before trying again.".to_string(),
-                            _ => format!("Failed to send code: {}", e)
-                        });
+                                s if s.contains("over_email_send_rate_limit") => 
+                                    "Too many attempts. Please wait a few minutes before trying again.".to_string(),
+                                _ => format!("Failed to send code: {}", e)
+                            });
                         }
                     }
                 }
