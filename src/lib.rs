@@ -126,8 +126,8 @@ pub async fn request_otp_web(email: &str) -> Result<(), String> {
         create_user: true,
     };
 
-    let response = Request::post(&format!("{}/auth/v1/otp", SUPABASE_URL))
-        .header("apikey", SUPABASE_ANON_KEY)
+    let response = Request::post(&format!("{}/auth/v1/otp", SUPABASE_URL.as_str()))
+        .header("apikey", SUPABASE_ANON_KEY.as_str())
         .header("Content-Type", "application/json")
         .body(serde_json::to_string(&request).map_err(|e| e.to_string())?)
         .send()
@@ -152,8 +152,8 @@ pub async fn verify_otp_web(email: &str, token: &str) -> Result<(), String> {
         auth_type: "email".to_string(),
     };
 
-    let response = Request::post(&format!("{}/auth/v1/verify", SUPABASE_URL))
-        .header("apikey", SUPABASE_ANON_KEY)
+    let response = Request::post(&format!("{}/auth/v1/verify", SUPABASE_URL.as_str()))
+        .header("apikey", SUPABASE_ANON_KEY.as_str())
         .header("Content-Type", "application/json")
         .body(serde_json::to_string(&request).map_err(|e| e.to_string())?)
         .send()
