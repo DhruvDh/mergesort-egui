@@ -5,6 +5,8 @@ name: CI
 env:
   RUSTFLAGS: -D warnings
   RUSTDOCFLAGS: -D warnings
+  SUPABASE_URL: ${{ vars.SUPABASE_URL }}  # Added environment variable
+  SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }} 
 
 jobs:
   check:
