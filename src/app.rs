@@ -2,9 +2,20 @@
 
 use eframe::egui;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+use email_address::*;
 use serde::{Deserialize, Serialize};
+use std::sync::mpsc::{self, Receiver, Sender};
 
-use crate::{make_anthropic_request, PENDING_STATE};
+use crate::{initialize_auth_state, save_auth_state};
+#[cfg(target_arch = "wasm32")]
+use crate::{make_anthropic_request, request_otp_web, verify_otp_web, AUTH_STATE, PENDING_STATE};
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_futures::spawn_local;
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::{
+    make_anthropic_request, request_otp_native, verify_otp_native, AUTH_STATE, PENDING_STATE,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 enum CheckpointStatus {
@@ -122,19 +133,47 @@ pub struct LearningApp {
     is_loading: bool,
     #[serde(skip)]
     scroll_state: ScrollState,
+    #[serde(skip)]
+    auth_modal_open: bool,
+    #[serde(skip)]
+    auth_email: String,
+    #[serde(skip)]
+    auth_code: String,
+    #[serde(skip)]
+    auth_step: AuthStep,
+    #[serde(skip)]
+    auth_error: Option<String>,
+    #[serde(skip)]
+    auth_tx: Sender<AuthMessage>,
+    #[serde(skip)]
+    auth_rx: Receiver<AuthMessage>,
+}
+
+#[derive(Debug, PartialEq)]
+enum AuthStep {
+    EnterEmail,
+    EnterCode,
+    HaveCode,
+}
+
+enum AuthMessage {
+    OTPRequested(Result<(), String>),
+    OTPVerified(Result<(), String>),
 }
 
 impl Default for LearningApp {
     fn default() -> Self {
+        let (auth_tx, auth_rx) = mpsc::channel();
+
         let initial_message = ChatMessage {
-            content: concat!(
+            content: [
                 "Welcome! I'm excited to help you discover MergeSort through an interactive learning experience. ",
                 "Let's start with a simple problem to get us thinking about sorting.\n\n",
                 "Imagine you have this sequence of numbers: `[7, 2, 4, 1, 5, 3]`\n\n",
                 "If you had to sort these numbers by hand, what would be your natural approach? ",
                 "How would you go about it?\n\n",
                 "Remember, there's no wrong answer here - I want to understand how you think about sorting intuitively."
-            ).to_string(),
+            ].concat(),
             from_user: false,
             cacheable: true,
             analyzed_for_checkpoints: false,
@@ -178,6 +217,13 @@ impl Default for LearningApp {
             pending_message: None,
             is_loading: false,
             scroll_state: ScrollState::new(),
+            auth_modal_open: false,
+            auth_email: String::new(),
+            auth_code: String::new(),
+            auth_step: AuthStep::EnterEmail,
+            auth_error: None,
+            auth_tx,
+            auth_rx,
         }
     }
 }
@@ -185,23 +231,56 @@ impl Default for LearningApp {
 impl LearningApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         if let Some(storage) = cc.storage {
+            // Initialize auth state from storage
+            initialize_auth_state(storage);
+
             let mut app: Self = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
             // Initialize caches for any existing messages
             app.message_caches = Vec::with_capacity(app.chat_history.len());
             for _ in 0..app.chat_history.len() {
                 app.message_caches.push(CommonMarkCache::default());
             }
-            return app;
+            app
+        } else {
+            Default::default()
         }
-        Default::default()
     }
 
     fn reset_to_default(&mut self) {
+        // Save the current auth state
+        let auth_state = AUTH_STATE.lock().unwrap();
+        let saved_email = auth_state.email.clone();
+        let saved_token = auth_state.access_token.clone();
+        let saved_signed_in = auth_state.signed_in;
+        drop(auth_state);
+
+        // Reset the app
         *self = Default::default();
+
+        // Restore auth state
+        let mut auth_state = AUTH_STATE.lock().unwrap();
+        auth_state.email = saved_email;
+        auth_state.access_token = saved_token;
+        auth_state.signed_in = saved_signed_in;
     }
 
     fn render_side_panel(&mut self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
+            // Add login status at the top
+            let auth_state = AUTH_STATE.lock().unwrap();
+            if auth_state.signed_in {
+                if let Some(email) = &auth_state.email {
+                    ui.horizontal(|ui| {
+                        ui.label("Logged in as:");
+                        ui.label(egui::RichText::new(email).strong());
+                    });
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+                }
+            }
+            drop(auth_state);
+
             ui.label(
                 egui::RichText::new("Checkpoint Progress")
                     .size(18.0)
@@ -266,7 +345,6 @@ impl LearningApp {
             );
         });
     }
-
     fn render_chat_panel(&mut self, ui: &mut egui::Ui) {
         let available_height = ui.available_height();
         let (user_msg_bg, user_msg_stroke) = if ui.visuals().dark_mode {
@@ -300,6 +378,7 @@ impl LearningApp {
                 ui.add_space(space_above);
                 let old_override_text_color = ui.style().visuals.override_text_color;
                 ui.style_mut().visuals.override_text_color = Some(user_msg_stroke);
+
                 // Render visible messages
                 for idx in start_idx..end_idx {
                     let message = &self.chat_history[idx];
@@ -314,7 +393,7 @@ impl LearningApp {
                                         ui,
                                         &mut self.message_caches[idx],
                                         &message.content,
-                                    );
+                                    )
                                 })
                                 .inner
                         })
@@ -329,7 +408,7 @@ impl LearningApp {
                                         ui,
                                         &mut self.message_caches[idx],
                                         &message.content,
-                                    );
+                                    )
                                 })
                                 .inner
                         })
@@ -339,9 +418,9 @@ impl LearningApp {
                     let rect = response.response.rect;
                     self.scroll_state
                         .update_message_height(idx, rect.height() + 10.0); // Add spacing
-
                     ui.add_space(10.0);
                 }
+
                 ui.style_mut().visuals.override_text_color = old_override_text_color;
 
                 // Add spacing for messages below viewport
@@ -368,16 +447,25 @@ impl LearningApp {
                         let button_width = available_width * 0.12;
                         let button_height = ui.spacing().interact_size.y * 4.0;
 
+                        let auth_state = AUTH_STATE.lock().unwrap();
+                        let is_signed_in = auth_state.signed_in;
+                        drop(auth_state);
+
                         if self.is_loading {
+                            // Show loading spinner when loading
                             ui.add_sized(
                                 egui::vec2(button_width, button_height),
-                                egui::Spinner::new().size(16.0),
+                                egui::Spinner::new(),
                             );
                         } else {
                             let button = egui::Button::new("Send")
                                 .min_size(egui::vec2(button_width, button_height));
 
-                            if ui.add(button).clicked()
+                            if !is_signed_in {
+                                if ui.add(button).clicked() {
+                                    self.auth_modal_open = true;
+                                }
+                            } else if ui.add(button).clicked()
                                 && !self.current_input.is_empty()
                                 && !self.is_loading
                             {
@@ -390,7 +478,6 @@ impl LearningApp {
                 });
         });
     }
-
     fn render_reset_modal(&mut self, ctx: &egui::Context) {
         if self.reset_modal_open {
             egui::Window::new("Reset Assignment")
@@ -521,14 +608,243 @@ impl LearningApp {
         message.found_checkpoints = found_checkpoints;
         message.analyzed_for_checkpoints = true;
     }
+
+    fn render_auth_modal(&mut self, ctx: &egui::Context) {
+        if self.auth_modal_open {
+            egui::Window::new("Sign In")
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    if let Some(error) = &self.auth_error {
+                        ui.label(
+                            egui::RichText::new("Error:")
+                                .color(egui::Color32::RED)
+                                .strong(),
+                        );
+                        egui::ScrollArea::vertical()
+                            .max_height(100.0)
+                            .show(ui, |ui| {
+                                ui.label(error);
+                            });
+                        ui.add_space(8.0);
+                    }
+
+                    match self.auth_step {
+                        AuthStep::EnterEmail => {
+                            ui.label("Enter your email to receive a sign-in code:");
+                            ui.text_edit_singleline(&mut self.auth_email);
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new("(Sign-in codes are valid for 1 hour)")
+                                    .weak()
+                                    .italics(),
+                            );
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                if ui.button("Get Code").clicked() {
+                                    self.request_otp();
+                                }
+                                if ui.button("I have a code").clicked() {
+                                    self.auth_step = AuthStep::HaveCode;
+                                }
+                            });
+                        }
+                        AuthStep::EnterCode => {
+                            ui.label(format!("Enter the code sent to {}:", self.auth_email));
+                            ui.text_edit_singleline(&mut self.auth_code);
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                if ui.button("Verify").clicked() {
+                                    self.verify_otp();
+                                }
+                                if ui.button("Back").clicked() {
+                                    self.auth_step = AuthStep::EnterEmail;
+                                    self.auth_code.clear();
+                                }
+                            });
+                        }
+                        AuthStep::HaveCode => {
+                            ui.label("Enter your email:");
+                            ui.text_edit_singleline(&mut self.auth_email);
+                            ui.add_space(8.0);
+                            ui.label("Enter your code:");
+                            ui.text_edit_singleline(&mut self.auth_code);
+                            ui.add_space(8.0);
+                            ui.label(
+                                egui::RichText::new("(Sign-in codes are valid for 1 hour)")
+                                    .weak()
+                                    .italics(),
+                            );
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                if ui.button("Verify").clicked() {
+                                    self.verify_otp();
+                                }
+                                if ui.button("Back").clicked() {
+                                    self.auth_step = AuthStep::EnterEmail;
+                                    self.auth_code.clear();
+                                }
+                            });
+                        }
+                    }
+                });
+        }
+    }
+
+    fn request_otp(&mut self) {
+        if self.auth_email.is_empty() {
+            self.auth_error = Some("Please enter an email address".to_string());
+            return;
+        }
+
+        if !EmailAddress::is_valid(&self.auth_email) {
+            self.auth_error = Some("Please enter a valid email address".to_string());
+            return;
+        }
+
+        let email = self.auth_email.clone();
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let app_ptr = self as *mut LearningApp;
+            spawn_local(async move {
+                let app = unsafe { &mut *app_ptr };
+                match request_otp_web(&email).await {
+                    Ok(_) => {
+                        app.auth_step = AuthStep::EnterCode;
+                        app.auth_error = None;
+                    }
+                    Err(e) => {
+                        log::error!("OTP request error: {}", e);
+                        app.auth_error = Some(format!("Error: {}", e));
+                    }
+                }
+            });
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let tx = self.auth_tx.clone();
+            tokio::spawn(async move {
+                let result = request_otp_native(&email).await;
+                let _ = tx.send(AuthMessage::OTPRequested(result));
+            });
+        }
+    }
+
+    fn verify_otp(&mut self) {
+        if self.auth_email.is_empty() {
+            self.auth_error = Some("Please enter an email address".to_string());
+            return;
+        }
+
+        if !EmailAddress::is_valid(&self.auth_email) {
+            self.auth_error = Some("Please enter a valid email address".to_string());
+            return;
+        }
+
+        if self.auth_code.is_empty() {
+            self.auth_error = Some("Please enter the verification code".to_string());
+            return;
+        }
+
+        let email = self.auth_email.clone();
+        let token = self.auth_code.clone();
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let app_ptr = self as *mut LearningApp;
+            spawn_local(async move {
+                let app = unsafe { &mut *app_ptr };
+                match verify_otp_web(&email, &token).await {
+                    Ok(_) => {
+                        app.auth_modal_open = false;
+                        app.auth_error = None;
+                    }
+                    Err(e) => {
+                        log::error!("OTP verification error: {}", e);
+                        app.auth_error = Some(match e.as_str() {
+                            s if s.contains("otp_expired") => {
+                                "Code has expired or is invalid. Please try again.".to_string()
+                            }
+                            s if s.contains("invalid_token") => {
+                                "Invalid code. Please check and try again.".to_string()
+                            }
+                            s if s.contains("rate_limit") => {
+                                "Too many attempts. Please wait a few minutes before trying again."
+                                    .to_string()
+                            }
+                            _ => format!("Error: {}", e),
+                        });
+                    }
+                }
+            });
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let tx = self.auth_tx.clone();
+            tokio::spawn(async move {
+                let result = verify_otp_native(&email, &token).await;
+                let _ = tx.send(AuthMessage::OTPVerified(result));
+            });
+        }
+    }
 }
 
 impl eframe::App for LearningApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        // Save both app state and auth state
         eframe::set_value(storage, eframe::APP_KEY, self);
+        save_auth_state(storage);
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Check for auth messages
+        #[cfg(not(target_arch = "wasm32"))]
+        while let Ok(msg) = self.auth_rx.try_recv() {
+            match msg {
+                AuthMessage::OTPRequested(result) => {
+                    match result {
+                        Ok(_) => {
+                            self.auth_step = AuthStep::EnterCode;
+                            self.auth_error = None;
+                        }
+                        Err(e) => {
+                            self.auth_error = Some(match e.as_str() {
+                            s if s.contains("over_email_send_rate_limit") => 
+                                "Too many attempts. Please wait a few minutes before trying again.".to_string(),
+                            _ => format!("Failed to send code: {}", e)
+                        });
+                        }
+                    }
+                }
+                AuthMessage::OTPVerified(result) => match result {
+                    Ok(_) => {
+                        self.auth_modal_open = false;
+                        self.auth_error = None;
+                    }
+                    Err(e) => {
+                        // Log the full error for debugging
+                        log::error!("OTP verification error: {}", e);
+                        self.auth_error = Some(match e.as_str() {
+                            s if s.contains("otp_expired") => {
+                                "Code has expired or is invalid. Please try again.".to_string()
+                            }
+                            s if s.contains("invalid_token") => {
+                                "Invalid code. Please check and try again.".to_string()
+                            }
+                            s if s.contains("rate_limit") => {
+                                "Too many attempts. Please wait a few minutes before trying again."
+                                    .to_string()
+                            }
+                            _ => format!("Error: {}", e),
+                        });
+                    }
+                },
+            }
+        }
+
         // Check for pending messages
         let mut state = PENDING_STATE.lock().unwrap();
         if let Some(response) = state.response.take() {
@@ -573,5 +889,6 @@ impl eframe::App for LearningApp {
 
         self.render_reset_modal(ctx);
         self.render_error_modal(ctx);
+        self.render_auth_modal(ctx);
     }
 }

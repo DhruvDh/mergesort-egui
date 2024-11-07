@@ -7,6 +7,53 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
+// Add these near the top with other uses
+use dotenv_codegen::dotenv;
+
+// Add these constants after other const declarations
+const SUPABASE_URL: &str = dotenv!("SUPABASE_URL");
+const SUPABASE_ANON_KEY: &str = dotenv!("SUPABASE_ANON_KEY");
+
+// Add these structures after other struct definitions
+#[derive(Debug, Serialize)]
+struct SupabaseOTPRequest {
+    email: String,
+    create_user: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct SupabaseVerifyRequest {
+    email: String,
+    token: String,
+    #[serde(rename = "type")]
+    auth_type: String,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct AuthState {
+    pub signed_in: bool,
+    pub email: Option<String>,
+    pub access_token: Option<String>,
+}
+
+lazy_static! {
+    pub static ref AUTH_STATE: Mutex<AuthState> = Mutex::new(AuthState::default());
+}
+
+// Add this function to initialize auth state from storage
+pub fn initialize_auth_state(storage: &dyn eframe::Storage) {
+    if let Some(stored_auth) = eframe::get_value(storage, "auth_state") {
+        let mut auth_state = AUTH_STATE.lock().unwrap();
+        *auth_state = stored_auth;
+    }
+}
+
+// Add this function to save auth state to storage
+pub fn save_auth_state(storage: &mut dyn eframe::Storage) {
+    let auth_state = AUTH_STATE.lock().unwrap();
+    eframe::set_value(storage, "auth_state", &*auth_state);
+}
+
 #[derive(Default)]
 struct PendingState {
     response: Option<String>,
@@ -24,6 +71,7 @@ struct AnthropicRequest {
     max_tokens: Option<u32>,
     temperature: Option<f32>,
     system: String,
+    email: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -59,6 +107,137 @@ fn get_system_message() -> String {
     INSTRUCTIONS.replace("{{LESSON_CONTENT}}", LESSON)
 }
 
+#[derive(Debug, Deserialize)]
+struct SupabaseAuthResponse {
+    access_token: String,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn request_otp_web(email: &str) -> Result<(), String> {
+    let request = SupabaseOTPRequest {
+        email: email.to_string(),
+        create_user: true,
+    };
+
+    let response = Request::post(format!("{}/auth/v1/otp", SUPABASE_URL))
+        .header("apikey", SUPABASE_ANON_KEY)
+        .header("Content-Type", "application/json")
+        .body(serde_json::to_string(&request).map_err(|e| e.to_string())?)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {}", e))?;
+
+    if response.status() == 200 {
+        Ok(())
+    } else {
+        let error_text = response.text().await.map_err(|e| e.to_string())?;
+        Err(error_text)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn verify_otp_web(email: &str, token: &str) -> Result<(), String> {
+    let request = SupabaseVerifyRequest {
+        email: email.to_string(),
+        token: token.to_string(),
+        auth_type: "email".to_string(),
+    };
+
+    let response = Request::post(format!("{}/auth/v1/verify", SUPABASE_URL))
+        .header("apikey", SUPABASE_ANON_KEY)
+        .header("Content-Type", "application/json")
+        .body(serde_json::to_string(&request).map_err(|e| e.to_string())?)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if response.status() == 200 {
+        let auth_response: SupabaseAuthResponse =
+            response.json().await.map_err(|e| e.to_string())?;
+
+        // Verify we got a valid access token
+        if auth_response.access_token.is_empty() || auth_response.token_type != "bearer" {
+            return Err("Invalid authentication response".to_string());
+        }
+
+        // Update auth state
+        let mut auth_state = AUTH_STATE.lock().unwrap();
+        auth_state.signed_in = true;
+        auth_state.email = Some(email.to_string());
+        auth_state.access_token = Some(auth_response.access_token);
+
+        Ok(())
+    } else {
+        let error_text = response.text().await.map_err(|e| e.to_string())?;
+        Err(format!("Failed to verify OTP: {}", error_text))
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn request_otp_native(email: &str) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let request = SupabaseOTPRequest {
+        email: email.to_string(),
+        create_user: true,
+    };
+
+    let response = client
+        .post(format!("{}/auth/v1/otp", SUPABASE_URL))
+        .header("apikey", SUPABASE_ANON_KEY)
+        .header("Content-Type", "application/json")
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {}", e))?;
+
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        let error_text = response.text().await.map_err(|e| e.to_string())?;
+        Err(error_text)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn verify_otp_native(email: &str, token: &str) -> Result<(), String> {
+    let client = reqwest::Client::new();
+    let request = SupabaseVerifyRequest {
+        email: email.to_string(),
+        token: token.to_string(),
+        auth_type: "email".to_string(),
+    };
+
+    let response = client
+        .post(format!("{}/auth/v1/verify", SUPABASE_URL))
+        .header("apikey", SUPABASE_ANON_KEY)
+        .header("Content-Type", "application/json")
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if response.status().is_success() {
+        let auth_response: SupabaseAuthResponse =
+            response.json().await.map_err(|e| e.to_string())?;
+
+        // Verify we got a valid access token
+        if auth_response.access_token.is_empty() {
+            return Err("Invalid authentication response".to_string());
+        }
+
+        // Update auth state
+        let mut auth_state = AUTH_STATE.lock().unwrap();
+        auth_state.signed_in = true;
+        auth_state.email = Some(email.to_string());
+        auth_state.access_token = Some(auth_response.access_token);
+
+        Ok(())
+    } else {
+        let error_text = response.text().await.map_err(|e| e.to_string())?;
+        Err(format!("Failed to verify OTP: {}", error_text))
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 mod web {
     use super::*;
@@ -67,10 +246,20 @@ mod web {
 
     pub(crate) fn make_anthropic_request(
         user_message: String,
-        chat_history: Vec<ChatMessage>, // Add chat_history parameter
+        chat_history: Vec<ChatMessage>,
         callback: impl Fn(Result<String, String>) + 'static,
     ) {
         let url = "https://dhruvdh-anthropic-s-50.deno.dev/";
+
+        let auth_state = AUTH_STATE.lock().unwrap();
+        let email = match &auth_state.email {
+            Some(email) => email.clone(),
+            None => {
+                callback(Err("Not authenticated".to_string()));
+                return;
+            }
+        };
+        drop(auth_state);
 
         let mut messages = Vec::new();
 
@@ -95,6 +284,7 @@ mod web {
             max_tokens: Some(2048),
             temperature: Some(0.0),
             system: get_system_message(),
+            email,
         };
 
         let payload = match serde_json::to_string(&request_payload) {
@@ -149,10 +339,21 @@ mod native {
 
     pub(crate) fn make_anthropic_request(
         user_message: String,
-        chat_history: Vec<ChatMessage>, // Add chat_history parameter
+        chat_history: Vec<ChatMessage>,
         callback: impl Fn(Result<String, String>) + Send + Sync + 'static,
     ) {
         let url = "https://dhruvdh-anthropic-s-50.deno.dev/";
+
+        let auth_state = AUTH_STATE.lock().unwrap();
+        let email = match &auth_state.email {
+            Some(email) => email.clone(),
+            None => {
+                callback(Err("Not authenticated".to_string()));
+                return;
+            }
+        };
+        drop(auth_state);
+
         let callback = Arc::new(callback);
 
         let mut messages = Vec::new();
@@ -178,6 +379,7 @@ mod native {
             max_tokens: Some(2048),
             temperature: Some(0.0),
             system: get_system_message(),
+            email,
         };
 
         let payload = match serde_json::to_string(&request_payload) {
