@@ -114,12 +114,14 @@ struct SupabaseAuthResponse {
 
 #[cfg(target_arch = "wasm32")]
 pub async fn request_otp_web(email: &str) -> Result<(), String> {
+    use reqwasm::http::Request;
+
     let request = SupabaseOTPRequest {
         email: email.to_string(),
         create_user: true,
     };
 
-    let response = Request::post(format!("{}/auth/v1/otp", SUPABASE_URL))
+    let response = Request::post(&format!("{}/auth/v1/otp", SUPABASE_URL))
         .header("apikey", SUPABASE_ANON_KEY)
         .header("Content-Type", "application/json")
         .body(serde_json::to_string(&request).map_err(|e| e.to_string())?)
@@ -127,7 +129,7 @@ pub async fn request_otp_web(email: &str) -> Result<(), String> {
         .await
         .map_err(|e| format!("Network error: {}", e))?;
 
-    if response.status() == 200 {
+    if response.ok() {
         Ok(())
     } else {
         let error_text = response.text().await.map_err(|e| e.to_string())?;
@@ -137,26 +139,28 @@ pub async fn request_otp_web(email: &str) -> Result<(), String> {
 
 #[cfg(target_arch = "wasm32")]
 pub async fn verify_otp_web(email: &str, token: &str) -> Result<(), String> {
+    use reqwasm::http::Request;
+
     let request = SupabaseVerifyRequest {
         email: email.to_string(),
         token: token.to_string(),
         auth_type: "email".to_string(),
     };
 
-    let response = Request::post(format!("{}/auth/v1/verify", SUPABASE_URL))
+    let response = Request::post(&format!("{}/auth/v1/verify", SUPABASE_URL))
         .header("apikey", SUPABASE_ANON_KEY)
         .header("Content-Type", "application/json")
         .body(serde_json::to_string(&request).map_err(|e| e.to_string())?)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Network error: {}", e))?;
 
-    if response.status() == 200 {
+    if response.ok() {
         let auth_response: SupabaseAuthResponse =
             response.json().await.map_err(|e| e.to_string())?;
 
         // Verify we got a valid access token
-        if auth_response.access_token.is_empty() || auth_response.token_type != "bearer" {
+        if auth_response.access_token.is_empty() {
             return Err("Invalid authentication response".to_string());
         }
 
