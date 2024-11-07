@@ -5,13 +5,15 @@ name: CI
 env:
   RUSTFLAGS: -D warnings
   RUSTDOCFLAGS: -D warnings
-  SUPABASE_URL: ${{ vars.SUPABASE_URL }}  # Added environment variable
-  SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }} 
 
 jobs:
   check:
     name: Check
     runs-on: ubuntu-latest
+    environment: pages
+    env:
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
@@ -27,6 +29,7 @@ jobs:
   check_wasm:
     name: Check wasm32
     runs-on: ubuntu-latest
+    environment: pages
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
@@ -43,6 +46,7 @@ jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
+    environment: pages
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
@@ -59,6 +63,7 @@ jobs:
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
+    environment: pages
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
@@ -75,6 +80,7 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    environment: pages
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
@@ -91,6 +97,7 @@ jobs:
   trunk:
     name: trunk
     runs-on: ubuntu-latest
+    environment: pages
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
@@ -106,6 +113,7 @@ jobs:
 
   build:
     runs-on: ${{ matrix.os }}
+    environment: pages
     strategy:
       fail-fast: false
       matrix:
