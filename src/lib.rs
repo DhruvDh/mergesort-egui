@@ -277,7 +277,7 @@ mod web {
             messages.push(AnthropicMessage {
                 role: if msg.from_user { "user" } else { "assistant" }.to_string(),
                 content: msg.content,
-                cacheable: false,
+                cacheable: msg.cacheable,
             });
         }
 
@@ -372,7 +372,7 @@ mod native {
             messages.push(AnthropicMessage {
                 role: if msg.from_user { "user" } else { "assistant" }.to_string(),
                 content: msg.content,
-                cacheable: false,
+                cacheable: msg.cacheable,
             });
         }
 

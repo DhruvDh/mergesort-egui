@@ -50,66 +50,14 @@ pub(crate) struct ChatMessage {
 
 #[derive(Debug)]
 struct ScrollState {
-    viewport_height: f32,
-    total_height: f32,
-    message_heights: Vec<f32>,
-    scroll_offset: f32,
-    estimated_message_height: f32,
+    stick_to_bottom: bool,
 }
 
 impl ScrollState {
     fn new() -> Self {
         Self {
-            viewport_height: 0.0,
-            total_height: 0.0,
-            message_heights: Vec::new(),
-            scroll_offset: 0.0,
-            estimated_message_height: 100.0, // Initial estimate
+            stick_to_bottom: true,
         }
-    }
-
-    fn update_message_height(&mut self, idx: usize, height: f32) {
-        if idx >= self.message_heights.len() {
-            self.message_heights
-                .resize(idx + 1, self.estimated_message_height);
-        }
-        self.message_heights[idx] = height;
-        self.recalculate_total_height();
-    }
-
-    fn recalculate_total_height(&mut self) {
-        self.total_height = self.message_heights.iter().sum();
-    }
-
-    fn get_visible_range(&self) -> (usize, usize) {
-        let mut current_height = 0.0;
-        let mut start_idx = 0;
-        let mut end_idx = self.message_heights.len();
-
-        // Find start index
-        for (idx, height) in self.message_heights.iter().enumerate() {
-            if current_height + height > self.scroll_offset {
-                start_idx = idx;
-                break;
-            }
-            current_height += height;
-        }
-
-        // Find end index
-        current_height = 0.0;
-        for (idx, height) in self.message_heights.iter().enumerate() {
-            current_height += height;
-            if current_height > self.scroll_offset + self.viewport_height {
-                end_idx = idx + 1;
-                break;
-            }
-        }
-
-        // Add buffer
-        start_idx = start_idx.saturating_sub(2);
-        end_idx = (end_idx + 2).min(self.message_heights.len());
-
-        (start_idx, end_idx)
     }
 }
 
@@ -354,36 +302,18 @@ impl LearningApp {
             (egui::Color32::from_rgb(254, 243, 199), egui::Color32::BLACK)
         };
 
-        self.scroll_state.viewport_height = available_height;
-
-        // Ensure we have height estimates for all messages
-        if self.scroll_state.message_heights.len() < self.chat_history.len() {
-            self.scroll_state.message_heights.resize(
-                self.chat_history.len(),
-                self.scroll_state.estimated_message_height,
-            );
-            self.scroll_state.recalculate_total_height();
-        }
-
         ui.vertical(|ui| {
             let scroll_area = egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
-                .max_height(available_height - 100.0); // Leave space for input area
+                .stick_to_bottom(self.scroll_state.stick_to_bottom)
+                .max_height(available_height - 100.0); // Account for input area
 
             scroll_area.show(ui, |ui| {
-                // Get visible range
-                let (start_idx, end_idx) = self.scroll_state.get_visible_range();
-
-                // Add spacing for messages above viewport
-                let space_above: f32 = self.scroll_state.message_heights[..start_idx].iter().sum();
-                ui.add_space(space_above);
                 let old_override_text_color = ui.style().visuals.override_text_color;
                 ui.style_mut().visuals.override_text_color = Some(user_msg_stroke);
 
-                // Render visible messages
-                for idx in start_idx..end_idx {
-                    let message = &self.chat_history[idx];
-                    let response = if message.from_user {
+                for (idx, message) in self.chat_history.iter().enumerate() {
+                    if message.from_user {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                             egui::Frame::none()
                                 .fill(user_msg_bg)
@@ -395,9 +325,8 @@ impl LearningApp {
                                         &mut self.message_caches[idx],
                                         &message.content,
                                     )
-                                })
-                                .inner
-                        })
+                                });
+                        });
                     } else {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
                             egui::Frame::none()
@@ -410,23 +339,13 @@ impl LearningApp {
                                         &mut self.message_caches[idx],
                                         &message.content,
                                     )
-                                })
-                                .inner
-                        })
-                    };
-
-                    // Update message height
-                    let rect = response.response.rect;
-                    self.scroll_state
-                        .update_message_height(idx, rect.height() + 10.0); // Add spacing
+                                });
+                        });
+                    }
                     ui.add_space(10.0);
                 }
 
                 ui.style_mut().visuals.override_text_color = old_override_text_color;
-
-                // Add spacing for messages below viewport
-                let space_below: f32 = self.scroll_state.message_heights[end_idx..].iter().sum();
-                ui.add_space(space_below);
             });
 
             // Input area with frame
@@ -437,13 +356,19 @@ impl LearningApp {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         let available_width = ui.available_width();
-                        ui.add(
-                            egui::TextEdit::multiline(&mut self.current_input)
-                                .hint_text("Type your message here...")
-                                .desired_rows(5)
-                                .desired_width(available_width * 0.87)
-                                .frame(true),
-                        );
+
+                        // Create a scrollable input area
+                        egui::ScrollArea::vertical()
+                            .max_height(150.0) // Limit maximum height
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut self.current_input)
+                                        .hint_text("Type your message here...")
+                                        .desired_width(available_width * 0.87)
+                                        .frame(true)
+                                        .desired_rows(4), // Start with 3 rows
+                                );
+                            });
 
                         let button_width = available_width * 0.12;
                         let button_height = ui.spacing().interact_size.y * 4.0;
@@ -453,7 +378,6 @@ impl LearningApp {
                         drop(auth_state);
 
                         if self.is_loading {
-                            // Show loading spinner when loading
                             ui.add_sized(
                                 egui::vec2(button_width, button_height),
                                 egui::Spinner::new(),
@@ -549,6 +473,9 @@ impl LearningApp {
             found_checkpoints: Vec::new(),
         });
         self.message_caches.push(CommonMarkCache::default());
+
+        // Set stick_to_bottom before and after adding the message
+        self.scroll_state.stick_to_bottom = true;
         self.is_loading = true;
 
         // Pass the chat history before adding the new message
@@ -816,6 +743,7 @@ impl eframe::App for LearningApp {
         // Check for pending messages
         let mut state = PENDING_STATE.lock().unwrap();
         if let Some(response) = state.response.take() {
+            self.scroll_state.stick_to_bottom = true; // Set before adding AI response
             self.chat_history.push(ChatMessage {
                 content: response,
                 from_user: false,
