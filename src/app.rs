@@ -18,22 +18,22 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-enum CheckpointStatus {
+enum MilestoneStatus {
     NotStarted,
     InProgress,
     Completed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Checkpoint {
+struct Milestone {
     id: String,
     description: String,
-    status: CheckpointStatus,
+    status: MilestoneStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct CheckpointMatch {
-    checkpoint_id: String,
+pub(crate) struct MilestoneMatch {
+    milestone_id: String,
     description: String,
 }
 
@@ -43,9 +43,9 @@ pub(crate) struct ChatMessage {
     pub(crate) from_user: bool,
     pub(crate) cacheable: bool,
     #[serde(skip)]
-    pub(crate) analyzed_for_checkpoints: bool,
+    pub(crate) analyzed_for_milestones: bool,
     #[serde(default)]
-    pub(crate) found_checkpoints: Vec<CheckpointMatch>,
+    pub(crate) found_milestones: Vec<MilestoneMatch>,
 }
 
 #[derive(Debug)]
@@ -67,7 +67,7 @@ impl ScrollState {
 #[serde(default)]
 pub struct LearningApp {
     label: String,
-    checkpoints: Vec<Checkpoint>,
+    milestones: Vec<Milestone>,
     reset_modal_open: bool,
     chat_history: Vec<ChatMessage>,
     #[serde(skip)]
@@ -114,53 +114,62 @@ impl Default for LearningApp {
     fn default() -> Self {
         let (auth_tx, auth_rx) = mpsc::channel();
 
-        let initial_message = ChatMessage {
-            content: [
-                "Welcome! I'm excited to help you discover MergeSort through an interactive learning experience. ",
-                "Let's start with a simple problem to get us thinking about sorting.\n\n",
-                "Imagine you have this sequence of numbers: `[7, 2, 4, 1, 5, 3]`\n\n",
-                "If you had to sort these numbers by hand, what would be your natural approach? ",
-                "How would you go about it?\n\n",
-                "Remember, there's no wrong answer here - I want to understand how you think about sorting intuitively."
-            ].concat(),
-            from_user: false,
-            cacheable: true,
-            analyzed_for_checkpoints: false,
-            found_checkpoints: Vec::new(),
-        };
+        let initial_messages = vec![
+            ChatMessage {
+                content: "I am ready, please begin.".to_string(),
+                from_user: true,
+                cacheable: false,
+                analyzed_for_milestones: false,
+                found_milestones: Vec::new(),
+            },
+            ChatMessage {
+                content: [
+                    "Welcome! I'm excited to help you discover MergeSort through an interactive learning experience. ",
+                    "Let's start with a simple problem to get us thinking about sorting.\n\n",
+                    "Imagine you have this sequence of numbers: `[7, 2, 4, 1, 5, 3]`\n\n",
+                    "If you had to sort these numbers by hand, what would be your natural approach? ",
+                    "How would you go about it?\n\n",
+                    "Remember, there's no wrong answer here - I want to understand how you think about sorting intuitively."
+                ].concat(),
+                from_user: false,
+                cacheable: true,
+                analyzed_for_milestones: false,
+                found_milestones: Vec::new(),
+            },
+        ];
 
         Self {
             label: "Hello World!".to_owned(),
-            checkpoints: vec![
-                Checkpoint {
+            milestones: vec![
+                Milestone {
                     id: "inefficiency_discovery".to_string(),
                     description: "Understanding sorting inefficiency".to_string(),
-                    status: CheckpointStatus::InProgress,
+                    status: MilestoneStatus::InProgress,
                 },
-                Checkpoint {
+                Milestone {
                     id: "splitting_insight".to_string(),
                     description: "Discovering divide-and-conquer benefit".to_string(),
-                    status: CheckpointStatus::NotStarted,
+                    status: MilestoneStatus::NotStarted,
                 },
-                Checkpoint {
+                Milestone {
                     id: "merging_development".to_string(),
                     description: "Understanding systematic merging".to_string(),
-                    status: CheckpointStatus::NotStarted,
+                    status: MilestoneStatus::NotStarted,
                 },
-                Checkpoint {
+                Milestone {
                     id: "recursive_pattern".to_string(),
                     description: "Grasping recursive nature".to_string(),
-                    status: CheckpointStatus::NotStarted,
+                    status: MilestoneStatus::NotStarted,
                 },
-                Checkpoint {
+                Milestone {
                     id: "efficiency_analysis".to_string(),
                     description: "Comprehending O(n log n) complexity".to_string(),
-                    status: CheckpointStatus::NotStarted,
+                    status: MilestoneStatus::NotStarted,
                 },
             ],
             reset_modal_open: false,
-            chat_history: vec![initial_message],
-            message_caches: vec![CommonMarkCache::default()],
+            chat_history: initial_messages,
+            message_caches: vec![CommonMarkCache::default(), CommonMarkCache::default()],
             current_input: String::new(),
             error_modal: None,
             pending_message: None,
@@ -231,28 +240,28 @@ impl LearningApp {
             drop(auth_state);
 
             ui.label(
-                egui::RichText::new("Checkpoint Progress")
+                egui::RichText::new("Milestone Progress")
                     .size(18.0)
                     .heading(),
             );
             ui.add_space(8.0);
-            // Render checkpoints
-            self.checkpoints
+            // Render milestones
+            self.milestones
                 .iter()
                 .enumerate()
-                .for_each(|(index, checkpoint)| {
+                .for_each(|(index, milestone)| {
                     ui.horizontal(|ui| {
                         ui.add_space(8.0);
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             // Show number + description or ???
-                            let display_text = match checkpoint.status {
-                                CheckpointStatus::Completed => {
-                                    format!("{}. {} ✔", index + 1, checkpoint.description)
+                            let display_text = match milestone.status {
+                                MilestoneStatus::Completed => {
+                                    format!("{}. {} ✔", index + 1, milestone.description)
                                 }
-                                CheckpointStatus::InProgress => {
+                                MilestoneStatus::InProgress => {
                                     format!("{}.   ? ? ?  (In Progress... ⏳)", index + 1)
                                 }
-                                CheckpointStatus::NotStarted => {
+                                MilestoneStatus::NotStarted => {
                                     format!("{}.   ? ? ?", index + 1)
                                 }
                             };
@@ -469,8 +478,8 @@ impl LearningApp {
             content: message.clone(),
             from_user: true,
             cacheable: false,
-            analyzed_for_checkpoints: false,
-            found_checkpoints: Vec::new(),
+            analyzed_for_milestones: false,
+            found_milestones: Vec::new(),
         });
         self.message_caches.push(CommonMarkCache::default());
 
@@ -490,14 +499,14 @@ impl LearningApp {
         });
     }
 
-    fn scan_message_for_checkpoints(&mut self, message_idx: usize) {
+    fn scan_message_for_milestones(&mut self, message_idx: usize) {
         let message = &self.chat_history[message_idx];
 
-        if message.analyzed_for_checkpoints || message.from_user {
+        if message.analyzed_for_milestones || message.from_user {
             return;
         }
 
-        let checkpoint_ids = [
+        let milestone_ids = [
             "inefficiency_discovery",
             "splitting_insight",
             "merging_development",
@@ -505,26 +514,24 @@ impl LearningApp {
             "efficiency_analysis",
         ];
 
-        let mut found_checkpoints = Vec::new();
+        let mut found_milestones = Vec::new();
 
         for line in message.content.lines() {
-            if let Some(start) = line.find("CHECKPOINT[") {
-                if let Some(end) = line.find("]:") {
-                    let checkpoint_id = &line[(start + "CHECKPOINT[".len())..end].trim();
+            if let Some(start) = line.find("MILESTONE[") {
+                if let Some(end) = line[start..].find("]") {
+                    let milestone_id = &line[(start + "MILESTONE[".len())..start + end];
+                    let milestone_id = milestone_id.trim();
 
-                    if checkpoint_ids.contains(checkpoint_id) {
-                        let description = line[end + 2..].trim().to_string();
-
-                        if let Some(checkpoint) = self
-                            .checkpoints
+                    if milestone_ids.contains(&milestone_id) {
+                        if let Some(milestone) = self
+                            .milestones
                             .iter_mut()
-                            .find(|c| c.id.as_str() == *checkpoint_id)
+                            .find(|c| c.id.as_str() == milestone_id)
                         {
-                            checkpoint.status = CheckpointStatus::Completed;
-
-                            found_checkpoints.push(CheckpointMatch {
-                                checkpoint_id: checkpoint_id.to_string(),
-                                description,
+                            milestone.status = MilestoneStatus::Completed;
+                            found_milestones.push(MilestoneMatch {
+                                milestone_id: milestone_id.to_string(),
+                                description: milestone.description.clone(),
                             });
                         }
                     }
@@ -533,8 +540,8 @@ impl LearningApp {
         }
 
         let message = &mut self.chat_history[message_idx];
-        message.found_checkpoints = found_checkpoints;
-        message.analyzed_for_checkpoints = true;
+        message.found_milestones = found_milestones;
+        message.analyzed_for_milestones = true;
     }
 
     fn render_auth_modal(&mut self, ctx: &egui::Context) {
@@ -748,13 +755,13 @@ impl eframe::App for LearningApp {
                 content: response,
                 from_user: false,
                 cacheable: false,
-                analyzed_for_checkpoints: false,
-                found_checkpoints: Vec::new(),
+                analyzed_for_milestones: false,
+                found_milestones: Vec::new(),
             });
             self.message_caches.push(CommonMarkCache::default());
 
             let last_idx = self.chat_history.len() - 1;
-            self.scan_message_for_checkpoints(last_idx);
+            self.scan_message_for_milestones(last_idx);
 
             self.is_loading = false;
             ctx.request_repaint();
