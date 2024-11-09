@@ -110,7 +110,7 @@ const LESSON: &str = include_str!("mergesort-lesson.md");
 
 // Add these constants near the top of the file, after the other constants
 const MAX_TOKENS: u32 = 2048;
-const TEMPERATURE: f32 = 0.6;
+const TEMPERATURE: f32 = 0.0;
 
 // Add this new function
 fn get_system_message() -> String {
