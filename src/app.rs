@@ -124,10 +124,9 @@ impl Default for LearningApp {
             },
             ChatMessage {
                 content: [
-                    "Hello! I'm excited to explore sorting algorithms with you today. Before we dive in, let's start with something simple.\n\n",
-                    "Imagine you have these numbers: [7, 2, 4, 1]\n\n",
-                    "Could you try sorting these numbers from smallest to largest? Just tell me your steps as you do it.\n\n",
-                    "(Note: I want to see your natural approach without any specific instructions from me. Just do what feels intuitive!)"
+                        "Hello! I'm excited to guide you through learning about one of computer science's most elegant sorting algorithms. Let's start with something simple.\n\n",
+                        "Imagine you have these numbers: `[7, 4, 2, 1]`\n\n",
+                        "How would you sort these numbers from smallest to largest? Don't worry about being efficient - just tell me your first instinct for how you'd do it."
                 ].concat(),
                 from_user: false,
                 cacheable: true,
