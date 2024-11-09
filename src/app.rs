@@ -124,12 +124,10 @@ impl Default for LearningApp {
             },
             ChatMessage {
                 content: [
-                    "Welcome! I'm excited to help you discover MergeSort through an interactive learning experience. ",
-                    "Let's start with a simple problem to get us thinking about sorting.\n\n",
-                    "Imagine you have this sequence of numbers: `[7, 2, 4, 1, 5, 3]`\n\n",
-                    "If you had to sort these numbers by hand, what would be your natural approach? ",
-                    "How would you go about it?\n\n",
-                    "Remember, there's no wrong answer here - I want to understand how you think about sorting intuitively."
+                    "Hello! I'm excited to explore sorting algorithms with you today. Before we dive in, let's start with something simple.\n\n",
+                    "Imagine you have these numbers: [7, 2, 4, 1]\n\n",
+                    "Could you try sorting these numbers from smallest to largest? Just tell me your steps as you do it.\n\n",
+                    "(Note: I want to see your natural approach without any specific instructions from me. Just do what feels intuitive!)"
                 ].concat(),
                 from_user: false,
                 cacheable: true,
