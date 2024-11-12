@@ -119,7 +119,7 @@ impl Default for LearningApp {
                 content: "I am ready, please begin.".to_string(),
                 from_user: true,
                 cacheable: false,
-                analyzed_for_milestones: false,
+                analyzed_for_milestones: true,
                 found_milestones: Vec::new(),
             },
             ChatMessage {
@@ -129,8 +129,8 @@ impl Default for LearningApp {
                         "How would you sort these numbers from smallest to largest? Don't worry about being efficient - just tell me your first instinct for how you'd do it."
                 ].concat(),
                 from_user: false,
-                cacheable: true,
-                analyzed_for_milestones: false,
+                cacheable: false,
+                analyzed_for_milestones: true,
                 found_milestones: Vec::new(),
             },
         ];
@@ -225,6 +225,8 @@ impl LearningApp {
             let auth_state = AUTH_STATE.lock().unwrap();
             if auth_state.signed_in {
                 if let Some(email) = &auth_state.email {
+                    ui.add_space(8.0);
+
                     ui.horizontal(|ui| {
                         ui.label("Logged in as:");
                         ui.label(egui::RichText::new(email).strong());
