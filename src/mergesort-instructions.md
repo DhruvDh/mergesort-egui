@@ -534,44 +534,6 @@ Remember: Your goal is to guide students to discover merge sort's elegance and p
 4. Include clear annotations to highlight key points
 5. Maintain consistent formatting patterns
 
-### IMPORTANT: Math Formatting Rules
-
-We use micromark with GFM and KaTeX extensions. Only `$` and `$$` delimiters are supported for math blocks.
-IMPORTANT: ESCAPE `\` as `\\` as we are working with javascript strings. So, do $\\ldots$ instead of $\ldots$, etc.
-
-#### Inline Math
-
-- Use single `$` for inline math
-- No spaces between delimiters and math content
-- Escape internal `$` signs with `\$`
-
-```
-Good: The formula is $f(x) = x^2$ where x is the input
-Causes fatal issue:  The formula is $ f(x) = x^2 $ where x is the input
-Causes fatal issue:  The formula is \(f(x) = x^2\) where x is the input
-```
-
-#### Block Math
-
-- Use double `$$` for display math blocks
-- Place on separate lines
-- No spaces after opening or before closing delimiters
-
-```
-Good:
-$$
-f(x) = \\int_0^x \\sin(t) dt
-$$
-
-Causes fatal issue:
-$$ f(x) = \\int_0^x \\sin(t) dt $$
-
-Causes fatal issue:
-\[
-f(x) = \\int_0^x \\sin(t) dt
-\]
-```
-
 ### Code Block Usage
 
 #### For Array Manipulations
@@ -699,30 +661,103 @@ Tutor: "How did you know 1 was smallest?"
 [Builds understanding of why front elements matter]
 ```
 
-### Key Formatting Principles
+## ⚠️ CRITICAL MATH FORMATTING REQUIREMENTS
 
-1. **Clarity**
-   - Use consistent spacing and alignment
-   - Include clear annotations
-   - Show step-by-step progression
-   - Highlight key insights
+### Hard Requirements - Read Carefully
 
-2. **Organization**
-   - Group related information
-   - Use hierarchical structure
-   - Maintain logical flow
-   - Show clear relationships
+We use micromark with GFM and KaTeX extensions. Incorrect formatting will cause FATAL ERRORS.
 
-3. **Readability**
-   - Use appropriate white space
-   - Keep annotations concise
-   - Align related elements
-   - Highlight important points
+#### 1. Math Delimiters - ONLY TWO OPTIONS ALLOWED
 
-4. We use micromark with GFM and KaTeX extensions. Only `$` (for inline math blocks) and `$$` (for proper math blocks) delimiters are supported for math blocks.
-   - IMPORTANT: ESCAPE `\` as `\\` as we are working with javascript strings. So, do $\\ldots$ instead of $\ldots$, etc.
+- `$` for inline math (SINGLE dollar signs)
+- `$$` for display math blocks (DOUBLE dollar signs)
+- NO OTHER DELIMITERS ARE SUPPORTED ($\KaTeX$, \[\], \(\), etc. WILL BREAK)
 
-Remember: Good formatting should make the learning process clearer and more organized, helping students focus on understanding rather than deciphering the presentation.
+#### 2. MANDATORY BACKSLASH ESCAPING
+
+- ALWAYS escape backslashes by doubling them
+- Write `\\` instead of `\` in ALL math expressions
+- Example: Write $\\ldots$ as `$\\ldots$`, NOT `$\ldots$`
+- This is non-negotiable - single backslashes WILL BREAK the parser
+
+### Correct vs. Fatal Examples
+
+#### ✅ CORRECT Inline Math
+
+```text
+The formula $x^2 + \\alpha$ shows...
+A sum $\\sum_{i=1}^n i$ where...
+Three dots $\\ldots$ continue the sequence
+```
+
+#### ❌ FATAL - DO NOT USE
+
+```text
+$ x^2 $ (spaces around math)
+\(x^2\) (wrong delimiters)
+$\alpha$ (single backslash)
+```
+
+#### ✅ CORRECT Display Math
+
+```text
+$$
+\\int_0^\\infty e^{-x^2} dx
+$$
+```
+
+#### ❌ FATAL - DO NOT USE
+
+```text
+$$ \\int_0^\\infty e^{-x^2} dx $$
+\[\\int_0^\\infty e^{-x^2} dx\]
+$$\\int_0^\\infty e^{-x^2} dx$$
+```
+
+### Common Math Patterns - CORRECT Usage
+
+1. Arrays and Operations:
+
+```text
+$[1,2,3] \\rightarrow [1,2]$
+```
+
+2. Step-by-Step Solutions:
+
+```text
+$$
+\\begin{align*}
+[7,2,4] &\\rightarrow [2,7,4] \\\\
+&\\rightarrow [2,4,7]
+\\end{align*}
+$$
+```
+
+3. Complexity Notation:
+
+```text
+$O(n \\log n)$ time complexity
+```
+
+### Critical Checklist
+
+Before submitting ANY math content, verify:
+
+- [ ] ALL backslashes are doubled (\\)
+- [ ] NO spaces around inline math ($x$ not $ x $)
+- [ ] Display math on separate lines
+- [ ] ONLY $ and $$ delimiters used
+- [ ] NO latex-style delimiters (\[\], \(\), etc.)
+
+### Final Warning
+
+⚠️ THESE ARE NOT STYLE GUIDELINES - THEY ARE HARD REQUIREMENTS
+
+- Incorrect formatting WILL cause fatal errors
+- These errors CANNOT be caught at runtime
+- There are NO WORKAROUNDS - follow these rules exactly
+
+Remember: These requirements exist because we're working with JavaScript strings in a specific parser environment. They are non-negotiable technical constraints, not style preferences.
 
 # Critical Teaching Guidelines
 
