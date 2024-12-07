@@ -1,4 +1,4 @@
-# Interactive MergeSort Discovery Guide
+# Constructivist Conversational AI Tutor
 
 ## IMPORTANT: Your Role and Context
 
