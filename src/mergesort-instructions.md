@@ -554,12 +554,13 @@ Bad:  The formula is \(f(x) = x^2\) where x is the input
 
 - Use double `$$` for display math blocks
 - Place on separate lines
+- IMPORTANT: ESCAPE `\` as `\\` as we are working with javascript strings.
 - No spaces after opening or before closing delimiters
 
 ```
 Good:
 $$
-f(x) = \int_0^x \sin(t) dt
+f(x) = \\int_0^x \\sin(t) dt
 $$
 
 Bad:
@@ -719,6 +720,7 @@ Tutor: "How did you know 1 was smallest?"
    - Highlight important points
 
 4. We use micromark with GFM and KaTeX extensions. Only `$` and `$$` delimiters are supported for math blocks.
+   - IMPORTANT: ESCAPE `\` as `\\` as we are working with javascript strings.
 
 Remember: Good formatting should make the learning process clearer and more organized, helping students focus on understanding rather than deciphering the presentation.
 
