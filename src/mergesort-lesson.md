@@ -1,5 +1,5 @@
 ---
-title: "The Journey to Merge Sort"
+title: "A Constructivist approach to MergeSort"
 ---
 
 ## Starting with Insertion Sort
