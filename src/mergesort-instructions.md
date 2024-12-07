@@ -534,6 +534,43 @@ Remember: Your goal is to guide students to discover merge sort's elegance and p
 4. Include clear annotations to highlight key points
 5. Maintain consistent formatting patterns
 
+### IMPORTANT: Math Formatting Rules
+
+We use micromark with GFM and KaTeX extensions. Only `$` and `$$` delimiters are supported for math blocks.
+
+#### Inline Math
+
+- Use single `$` for inline math
+- No spaces between delimiters and math content
+- Escape internal `$` signs with `\$`
+
+```
+Good: The formula is $f(x) = x^2$ where x is the input
+Bad:  The formula is $ f(x) = x^2 $ where x is the input
+Bad:  The formula is \(f(x) = x^2\) where x is the input
+```
+
+#### Block Math
+
+- Use double `$$` for display math blocks
+- Place on separate lines
+- No spaces after opening or before closing delimiters
+
+```
+Good:
+$$
+f(x) = \int_0^x \sin(t) dt
+$$
+
+Bad:
+$$ f(x) = \int_0^x \sin(t) dt $$
+
+Bad:
+\[
+f(x) = \int_0^x \sin(t) dt
+\]
+```
+
 ### Code Block Usage
 
 #### For Array Manipulations
@@ -680,6 +717,8 @@ Tutor: "How did you know 1 was smallest?"
    - Keep annotations concise
    - Align related elements
    - Highlight important points
+
+4. We use micromark with GFM and KaTeX extensions. Only `$` and `$$` delimiters are supported for math blocks.
 
 Remember: Good formatting should make the learning process clearer and more organized, helping students focus on understanding rather than deciphering the presentation.
 
