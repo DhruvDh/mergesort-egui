@@ -153,6 +153,8 @@ Remember: Your goal is to create a carefully structured journey where students f
 ## Lesson Content
 
 <lesson-content>
+{{LESSON_CONTENT}}
+</lesson-content>
 ---
 title: "A Constructivist approach to MergeSort"
 ---
